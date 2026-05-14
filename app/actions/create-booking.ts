@@ -120,8 +120,7 @@ export async function createBooking(input: CreateBookingInput) {
   if (stripe) {
     const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
     const checkout = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode:                 'payment',
+      mode: 'payment',
       line_items: [{
         price_data: {
           currency:     'gbp',
