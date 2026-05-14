@@ -76,6 +76,7 @@ interface BookingFlowContextValue {
   draft:    BookingDraft
   setDraft: (patch: Partial<BookingDraft>) => void
   reset:    () => void
+  hydrated: boolean
 }
 
 const BookingFlowContext = createContext<BookingFlowContextValue | null>(null)
@@ -116,7 +117,7 @@ export function BookingFlowProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <BookingFlowContext.Provider value={{ draft, setDraft, reset }}>
+    <BookingFlowContext.Provider value={{ draft, setDraft, reset, hydrated }}>
       {children}
     </BookingFlowContext.Provider>
   )

@@ -150,10 +150,18 @@ function PaymentScreen({ clientSecret, bookingRef, amountToday, plan, onSuccess 
 export function ReviewStep({ rooms }: Props) {
   const router  = useRouter()
   const { data: session, status } = useSession()
-  const { draft, setDraft, reset } = useBookingFlow()
+  const { draft, setDraft, reset, hydrated } = useBookingFlow()
   const [isPending, startTransition] = useTransition()
 
   const [plan,        setPlan]        = useState<'FULL' | 'INSTALMENT'>(draft.plan ?? 'FULL')
+
+  // draft starts as EMPTY_DRAFT (plan=null) and hydrates from sessionStorage
+  // asynchronously. Sync the local plan state once hydration completes so we
+  // never silently revert to 'FULL' if the user had 'INSTALMENT' saved.
+  useEffect(() => {
+    if (hydrated && draft.plan) setPlan(draft.plan)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated])
   const [codeInput,   setCodeInput]   = useState(draft.discountCode ?? '')
   const [codeMsg,     setCodeMsg]     = useState<{ ok: boolean; text: string } | null>(null)
   const [discountAmt, setDiscountAmt] = useState(draft.discountAmt)
