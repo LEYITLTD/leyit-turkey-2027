@@ -248,19 +248,24 @@ export interface InstalmentSlot {
 }
 
 /**
- * Builds the instalment schedule for a booking.
+ * Builds the DEFAULT instalment schedule for a booking.
+ *
+ * This is the starting point — the rows get saved to `instalment_schedules`
+ * and an admin can later edit individual amounts or due dates via the admin
+ * panel. The email confirmation always reads from the saved DB rows, not from
+ * this function, so any admin edits are reflected automatically.
  *
  * Full plan:       single payment of the full total, due immediately.
- * Instalment plan: deposit now, then equal monthly instalments.
+ * Instalment plan: 25% deposit now + 3 equal monthly instalments.
+ *                  Any rounding penny is absorbed into the final instalment.
  *
- * The deposit is 25% of the total (rounded up to nearest pence).
- * Remaining balance split into 3 equal monthly instalments from booking date.
- * Any rounding remainder is absorbed into the final instalment.
+ * Constraint: the sum of all instalment amounts must always equal the booking
+ * total. Use validateInstalmentSchedule() to enforce this before saving edits.
  */
 export function buildInstalmentSchedule(
-  total:       number,
-  plan:        'FULL' | 'INSTALMENT',
-  bookedAt:    Date = new Date(),
+  total:    number,
+  plan:     'FULL' | 'INSTALMENT',
+  bookedAt: Date = new Date(),
 ): InstalmentSlot[] {
   if (plan === 'FULL') {
     return [{
@@ -271,12 +276,12 @@ export function buildInstalmentSchedule(
     }]
   }
 
-  // Deposit: 25% rounded up
-  const deposit   = Math.ceil(total * 0.25)
-  const remaining = total - deposit
+  // Deposit: 25% rounded up to nearest pence
+  const deposit    = Math.ceil(total * 0.25)
+  const remaining  = total - deposit
 
-  // 3 equal monthly instalments — last absorbs rounding
-  const instalment  = Math.floor(remaining / 3)
+  // 3 equal monthly instalments — last absorbs any rounding remainder
+  const instalment     = Math.floor(remaining / 3)
   const lastInstalment = remaining - instalment * 2
 
   const addMonths = (date: Date, months: number): Date => {
@@ -311,6 +316,101 @@ export function buildInstalmentSchedule(
       dueDate: addMonths(bookedAt, 3),
     },
   ]
+}
+
+/**
+ * Validates that a (potentially admin-edited) instalment schedule is still
+ * internally consistent. Returns an array of error strings — empty = valid.
+ *
+ * Rules:
+ *  1. Every instalment must have amount > 0
+ *  2. Every instalment must have a valid future-ish due date
+ *  3. Due dates must be in ascending order (no instalment before the previous)
+ *  4. The sum of all amounts must equal the booking total exactly
+ */
+export function validateInstalmentSchedule(
+  instalments: InstalmentSlot[],
+  bookingTotal: number,
+): string[] {
+  const errors: string[] = []
+
+  if (instalments.length === 0) {
+    errors.push('Schedule must have at least one instalment.')
+    return errors
+  }
+
+  // Rule 1 & 2 — per-row checks
+  instalments.forEach((inst, i) => {
+    if (inst.amount <= 0) {
+      errors.push(`Instalment ${inst.number}: amount must be greater than £0.`)
+    }
+    if (!(inst.dueDate instanceof Date) || isNaN(inst.dueDate.getTime())) {
+      errors.push(`Instalment ${inst.number}: due date is invalid.`)
+    }
+  })
+
+  // Rule 3 — ascending dates
+  for (let i = 1; i < instalments.length; i++) {
+    const prev = instalments[i - 1].dueDate
+    const curr = instalments[i].dueDate
+    if (curr <= prev) {
+      errors.push(
+        `Instalment ${instalments[i].number}: due date must be after instalment ${instalments[i - 1].number}.`
+      )
+    }
+  }
+
+  // Rule 4 — amounts sum to total
+  const sum = instalments.reduce((acc, inst) => acc + inst.amount, 0)
+  if (sum !== bookingTotal) {
+    errors.push(
+      `Instalment amounts sum to ${formatGBP(sum)} but booking total is ${formatGBP(bookingTotal)}. ` +
+      `Difference: ${formatGBP(Math.abs(bookingTotal - sum))}.`
+    )
+  }
+
+  return errors
+}
+
+/**
+ * Formats the instalment schedule as plain text for use in confirmation emails.
+ *
+ * Example output:
+ *   Your payment schedule
+ *   ─────────────────────
+ *   ✓ Deposit (25%)       £312.50    paid today
+ *   • Instalment 2 of 4   £312.50    due 14 Jul 2027
+ *   • Instalment 3 of 4   £312.50    due 14 Aug 2027
+ *   • Final instalment     £312.50    due 14 Sep 2027
+ *   ─────────────────────
+ *   Total                 £1,250.00
+ */
+export function formatScheduleForEmail(
+  instalments: InstalmentSlot[],
+  paidInstalmentNumbers: number[] = [],
+): string {
+  const formatDate = (d: Date) =>
+    d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+
+  const total = instalments.reduce((acc, i) => acc + i.amount, 0)
+  const divider = '─'.repeat(48)
+
+  const lines = [
+    'Your payment schedule',
+    divider,
+    ...instalments.map(inst => {
+      const paid   = paidInstalmentNumbers.includes(inst.number)
+      const icon   = paid ? '✓' : '•'
+      const when   = paid ? 'paid today' : `due ${formatDate(inst.dueDate)}`
+      const label  = inst.label.padEnd(22)
+      const amount = formatGBP(inst.amount).padStart(10)
+      return `${icon} ${label}${amount}    ${when}`
+    }),
+    divider,
+    `  ${'Total'.padEnd(22)}${formatGBP(total).padStart(10)}`,
+  ]
+
+  return lines.join('\n')
 }
 
 // ─── Bed / cot derivation ────────────────────────────────────────────────────
