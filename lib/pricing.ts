@@ -68,6 +68,12 @@ export interface PriceBreakdown {
 
   // Final
   total:                  number  // always >= 0
+
+  // Extra nights — pre-computed so the client can update the total instantly
+  // without a server round-trip when the user adjusts extra-night counters.
+  // child46 is a flat stay rate so is NOT included here.
+  // seaviewSupplement is flat and NOT charged again per extra night.
+  ratePerExtraNight:      number
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -224,6 +230,24 @@ export function calculatePrice(
 
   const total = Math.max(0, afterBundleDiscount + discountCodeAmt)
 
+  // ── Per-extra-night rate ──────────────────────────────────────────────────
+  // Used by the client to update the total instantly when extra nights change.
+  // child46 is a flat stay cost — not charged again per extra night.
+  // Sea view supplement is flat — not charged again per extra night.
+  const adultNightlyRate = room.isBundle
+    ? config.bundleRateAdultDouble * adults
+    : adults === 1
+      ? config.rateAdultSinglePerNight
+      : config.rateAdultDoublePerNight * adults
+
+  const infantNightlyRate   = infants  * config.rateInfantPerNight
+  const child711NightlyRate = child711 * (room.isBundle ? config.bundleRateChild711Night : config.rateChild711PerNight)
+
+  let ratePerExtraNight = adultNightlyRate + infantNightlyRate + child711NightlyRate
+  if (room.isBundle) {
+    ratePerExtraNight = Math.round(ratePerExtraNight * (1 - config.bundleDiscountPercent / 100))
+  }
+
   return {
     nights,
     adultsSubtotal,
@@ -235,6 +259,7 @@ export function calculatePrice(
     bundleDiscount,
     discountCodeAmt,
     total,
+    ratePerExtraNight,
   }
 }
 

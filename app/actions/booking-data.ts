@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { calculatePrice, validateParty } from '@/lib/pricing'
-import type { BookingParty } from '@/lib/pricing'
+import type { BookingParty, PriceBreakdown } from '@/lib/pricing'
 
 // ─── Room type data (serialisable — safe to pass to client components) ────────
 
@@ -49,7 +49,7 @@ export async function getAvailableRooms(): Promise<RoomTypeData[]> {
   }))
 }
 
-// ─── Price calculation (called on form submit, not live) ──────────────────────
+// ─── Price calculation ────────────────────────────────────────────────────────
 
 export async function calcPrice(roomTypeId: string, party: BookingParty) {
   const [room, config] = await Promise.all([
@@ -57,14 +57,32 @@ export async function calcPrice(roomTypeId: string, party: BookingParty) {
     prisma.pricingConfig.findUniqueOrThrow({ where: { id: 'active' } }),
   ])
 
-  // Server-side validation before calculating
   const errors = validateParty(party, room)
-  if (errors.length > 0) {
-    return { ok: false as const, errors }
-  }
+  if (errors.length > 0) return { ok: false as const, errors }
 
   const breakdown = calculatePrice(party, room, config)
   return { ok: true as const, breakdown }
+}
+
+/**
+ * Calculates prices for ALL supplied room IDs in a single DB round-trip.
+ * Called when the party is locked so prices are ready before the user
+ * clicks a room — zero waiting time on room selection.
+ */
+export async function calcAllPrices(
+  roomTypeIds: string[],
+  party:       BookingParty,
+): Promise<Record<string, PriceBreakdown>> {
+  const [rooms, config] = await Promise.all([
+    prisma.roomType.findMany({ where: { id: { in: roomTypeIds } } }),
+    prisma.pricingConfig.findUniqueOrThrow({ where: { id: 'active' } }),
+  ])
+
+  const result: Record<string, PriceBreakdown> = {}
+  for (const room of rooms) {
+    result[room.id] = calculatePrice(party, room, config)
+  }
+  return result
 }
 
 // ─── Discount code validation ─────────────────────────────────────────────────

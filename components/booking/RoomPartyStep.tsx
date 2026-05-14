@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { calcPrice } from '@/app/actions/booking-data'
+import { calcAllPrices } from '@/app/actions/booking-data'
 import { formatGBP } from '@/lib/pricing'
 import { useBookingFlow } from '@/lib/booking-flow'
 import type { RoomTypeData } from '@/app/actions/booking-data'
@@ -12,18 +12,19 @@ interface Props { rooms: RoomTypeData[] }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Filter rooms down to only those that can physically fit the party */
-function filterRooms(rooms: RoomTypeData[], adults: number, infants: number, child46: number, child711: number) {
+function filterRooms(
+  rooms: RoomTypeData[],
+  adults: number, infants: number, child46: number, child711: number,
+) {
   const total = adults + infants + child46 + child711
-  return rooms.filter(r => {
-    if (r.available <= 0)                         return false
-    if (r.maxAdults < adults)                     return false
-    if (r.maxTotalPeople < total)                 return false
-    if (infants > 0  && !r.addCotAllowed)         return false
-    if (child711 > 0 && !r.addBedAllowed)         return false
-    if (infants > 0  && child711 > 0 && !r.bothAllowed) return false
-    return true
-  })
+  return rooms.filter(r =>
+    r.available > 0 &&
+    r.maxAdults >= adults &&
+    r.maxTotalPeople >= total &&
+    (infants  === 0 || r.addCotAllowed) &&
+    (child711 === 0 || r.addBedAllowed) &&
+    (infants  === 0 || child711 === 0 || r.bothAllowed)
+  )
 }
 
 // ─── Counter ──────────────────────────────────────────────────────────────────
@@ -44,13 +45,13 @@ function Counter({ label, sub, value, onChange, min = 0, max }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button type="button" onClick={() => onChange(Math.max(min, value - 1))}
           disabled={value <= min} className="btn btn-icon"
-          style={{ fontSize: 17, lineHeight: 1 }} aria-label={`Decrease ${label}`}>−</button>
+          style={{ fontSize: 17, lineHeight: 1 }}>−</button>
         <span style={{ width: 22, textAlign: 'center', fontWeight: 600, fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>
           {value}
         </span>
         <button type="button" onClick={() => onChange(max !== undefined ? Math.min(max, value + 1) : value + 1)}
           disabled={max !== undefined && value >= max} className="btn btn-icon"
-          style={{ fontSize: 17, lineHeight: 1 }} aria-label={`Increase ${label}`}>+</button>
+          style={{ fontSize: 17, lineHeight: 1 }}>+</button>
       </div>
     </div>
   )
@@ -64,10 +65,13 @@ const CAT_COLOUR: Record<string, string> = {
   SUITE:    'var(--gold-deep)',
 }
 
-function RoomCard({ room, selected, onSelect }: {
-  room: RoomTypeData; selected: boolean; onSelect: () => void
+function RoomCard({ room, selected, price, onSelect }: {
+  room: RoomTypeData; selected: boolean
+  price: PriceBreakdown | null
+  onSelect: () => void
 }) {
   const low = room.available > 0 && room.available <= 5
+
   return (
     <button type="button" onClick={onSelect} aria-pressed={selected} style={{
       all: 'unset', display: 'block', width: '100%', cursor: 'pointer',
@@ -78,6 +82,7 @@ function RoomCard({ room, selected, onSelect }: {
       boxShadow: selected ? '0 0 0 3px rgba(168,138,71,0.1)' : 'none',
       transition: 'all 140ms', textAlign: 'left', position: 'relative',
     }}>
+      {/* Selected tick */}
       {selected && (
         <div style={{
           position: 'absolute', top: 9, right: 9,
@@ -93,19 +98,16 @@ function RoomCard({ room, selected, onSelect }: {
         <span className="pill" style={{ fontSize: 10, color: CAT_COLOUR[room.category], background: 'var(--surface-2)', borderColor: 'transparent' }}>
           {room.category}
         </span>
-        {room.isSeaview && <span className="pill pill-info" style={{ fontSize: 10 }}>Sea view</span>}
+        {room.isSeaview && <span className="pill pill-info"    style={{ fontSize: 10 }}>Sea view</span>}
         {room.isBundle  && <span className="pill pill-warning" style={{ fontSize: 10 }}>Bundle</span>}
-        {low && <span className="pill pill-warning" style={{ fontSize: 10 }}>{room.available} left</span>}
+        {low            && <span className="pill pill-warning" style={{ fontSize: 10 }}>{room.available} left</span>}
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{room.displayName}</div>
-      {room.description && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 9, lineHeight: 1.45 }}>
-          {room.description}
-        </div>
-      )}
+      {/* Name */}
+      <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 8 }}>{room.displayName}</div>
 
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      {/* Capacity */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         {[
           ['👤', `Up to ${room.maxAdults} adult${room.maxAdults > 1 ? 's' : ''}`],
           ['👨‍👩‍👧', `${room.maxTotalPeople} max`],
@@ -117,68 +119,116 @@ function RoomCard({ room, selected, onSelect }: {
           </span>
         ))}
       </div>
+
+      {/* Price */}
+      <div style={{
+        borderTop: '1px solid var(--line)', paddingTop: 9,
+        display: 'flex', alignItems: 'baseline', gap: 4,
+      }}>
+        {price ? (
+          <>
+            <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: selected ? 'var(--gold-deep)' : 'var(--ink)' }}>
+              {formatGBP(price.total)}
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>total · {price.nights} nights</span>
+          </>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--muted-2)' }}>Calculating…</span>
+        )}
+      </div>
     </button>
   )
 }
 
-// ─── Price breakdown ──────────────────────────────────────────────────────────
+// ─── Extra nights + price panel (shown after room selected) ───────────────────
 
-function PriceCard({ breakdown, isBundle, onContinue }: {
-  breakdown: PriceBreakdown; isBundle: boolean; onContinue: () => void
+function ExtraNightsAndPrice({
+  breakdown, nightsBefore, nightsAfter,
+  onNightsBefore, onNightsAfter, onContinue,
+}: {
+  breakdown:      PriceBreakdown
+  nightsBefore:   number
+  nightsAfter:    number
+  onNightsBefore: (v: number) => void
+  onNightsAfter:  (v: number) => void
+  onContinue:     () => void
 }) {
-  const lines: { label: string; amount: number }[] = [
-    ...(breakdown.adultsSubtotal   > 0 ? [{ label: `Adults × ${breakdown.nights} nights`,  amount: breakdown.adultsSubtotal   }] : []),
-    ...(breakdown.infantsSubtotal  > 0 ? [{ label: 'Infants (0–3)',                          amount: breakdown.infantsSubtotal  }] : []),
-    ...(breakdown.child46Subtotal  > 0 ? [{ label: 'Children (4–6)',                         amount: breakdown.child46Subtotal  }] : []),
-    ...(breakdown.child711Subtotal > 0 ? [{ label: 'Children (7–11)',                        amount: breakdown.child711Subtotal }] : []),
-    ...(breakdown.seaviewSupplement > 0 ? [{ label: 'Sea view supplement',                   amount: breakdown.seaviewSupplement }] : []),
-    ...(breakdown.bundleDiscount   < 0 ? [{ label: `Bundle discount (20%)`,                  amount: breakdown.bundleDiscount   }] : []),
-  ]
+  const totalExtraNights = nightsBefore + nightsAfter
+  const extraCost        = totalExtraNights * breakdown.ratePerExtraNight
+  const grandTotal       = breakdown.total + extraCost
 
   return (
-    <div className="card" style={{ marginTop: 20, overflow: 'hidden' }}>
-      <div style={{
-        padding: '14px 18px',
-        background: 'linear-gradient(135deg, var(--gold-deep), var(--gold))',
-      }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.75)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 2 }}>
-          Price breakdown
+    <div className="card" style={{ marginTop: 20, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto', overflow: 'hidden' }}>
+
+      {/* Extra nights section */}
+      <div style={{ padding: '14px 18px 4px', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>Extra nights (optional)</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 2 }}>
+          Arrive early or stay late — add extra nights at {formatGBP(breakdown.ratePerExtraNight)}/night.
         </div>
-        <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>
-          {formatGBP(breakdown.total)}
-        </div>
+
+        <Counter
+          label="Nights before"
+          sub="Arrive before the retreat starts"
+          value={nightsBefore}
+          onChange={onNightsBefore}
+          min={0} max={3}
+        />
+        <Counter
+          label="Nights after"
+          sub="Stay on after the retreat ends"
+          value={nightsAfter}
+          onChange={onNightsAfter}
+          min={0} max={3}
+        />
       </div>
 
-      <div style={{ padding: '2px 18px' }}>
-        {lines.map((line, i) => (
-          <div key={i} style={{
+      {/* Price breakdown */}
+      <div style={{ padding: '4px 18px' }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          padding: '9px 0', borderBottom: '1px solid var(--line)',
+          fontSize: 13,
+        }}>
+          <span style={{ color: 'var(--muted)' }}>Retreat ({breakdown.nights} nights)</span>
+          <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{formatGBP(breakdown.total)}</span>
+        </div>
+
+        {totalExtraNights > 0 && (
+          <div style={{
             display: 'flex', justifyContent: 'space-between',
-            padding: '9px 0',
-            borderBottom: i < lines.length - 1 ? '1px solid var(--line)' : 'none',
+            padding: '9px 0', borderBottom: '1px solid var(--line)',
             fontSize: 13,
           }}>
-            <span style={{ color: line.amount < 0 ? 'var(--success)' : 'var(--muted)' }}>{line.label}</span>
-            <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: line.amount < 0 ? 'var(--success)' : 'var(--ink)' }}>
-              {line.amount < 0 ? `−${formatGBP(Math.abs(line.amount))}` : formatGBP(line.amount)}
+            <span style={{ color: 'var(--muted)' }}>
+              Extra nights ({totalExtraNights} × {formatGBP(breakdown.ratePerExtraNight)})
+            </span>
+            <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
+              +{formatGBP(extraCost)}
             </span>
           </div>
-        ))}
+        )}
       </div>
 
+      {/* Total */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '11px 18px', borderTop: '2px solid var(--line)', background: 'var(--surface-2)',
+        padding: '12px 18px', borderTop: '2px solid var(--line)', background: 'var(--surface-2)',
       }}>
         <span style={{ fontSize: 14, fontWeight: 600 }}>Total</span>
-        <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{formatGBP(breakdown.total)}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--gold-deep)' }}>
+          {formatGBP(grandTotal)}
+        </span>
       </div>
 
-      <div style={{ padding: '10px 18px 6px' }}>
+      {/* Note */}
+      <div style={{ padding: '10px 18px 4px' }}>
         <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          {breakdown.nights}-night stay. Pay in full or split into 4 instalments — your choice on the final step.
+          Pay in full or split into 4 instalments — your choice on the final step.
         </p>
       </div>
 
+      {/* CTA */}
       <div style={{ padding: '10px 18px 18px' }}>
         <button type="button" onClick={onContinue}
           className="btn btn-primary btn-lg"
@@ -201,22 +251,29 @@ export function RoomPartyStep({ rooms }: Props) {
   const [isPending, startTransition] = useTransition()
 
   // Phase 1 — party
-  const [adults,  setAdults]  = useState(draft.adults)
-  const [infants, setInfants] = useState(draft.infants)
-  const [child46, setChild46] = useState(draft.child46)
-  const [child711,setChild711]= useState(draft.child711)
-  const [partyError, setPartyError] = useState<string | null>(null)
+  const [adults,     setAdults]    = useState(draft.adults)
+  const [infants,    setInfants]   = useState(draft.infants)
+  const [child46,    setChild46]   = useState(draft.child46)
+  const [child711,   setChild711]  = useState(draft.child711)
+  const [partyError, setPartyError]= useState<string | null>(null)
 
-  // Phase 2 — room + price
+  // Phase 2 — rooms (pre-priced)
   const [partyLocked, setPartyLocked] = useState(!!draft.roomTypeId)
   const [filtered,    setFiltered]    = useState<RoomTypeData[]>(
     draft.roomTypeId ? filterRooms(rooms, draft.adults, draft.infants, draft.child46, draft.child711) : []
   )
-  const [selectedId,  setSelectedId]  = useState<string | null>(draft.roomTypeId)
-  const [breakdown,   setBreakdown]   = useState<PriceBreakdown | null>(draft.priceBreakdown)
-  const [calcError,   setCalcError]   = useState<string | null>(null)
+  const [priceMap, setPriceMap] = useState<Record<string, PriceBreakdown>>(
+    draft.roomTypeId && draft.priceBreakdown
+      ? { [draft.roomTypeId]: draft.priceBreakdown }
+      : {}
+  )
 
-  // ── Step A: lock party + show matching rooms ──────────────────────────────
+  // Phase 3 — selected room + extra nights
+  const [selectedId,    setSelectedId]    = useState<string | null>(draft.roomTypeId)
+  const [nightsBefore,  setNightsBefore]  = useState(draft.extraNightsBefore)
+  const [nightsAfter,   setNightsAfter]   = useState(draft.extraNightsAfter)
+
+  // ── Lock party, filter rooms, pre-calculate ALL prices in one go ──────────
   function handleFindRooms() {
     if (adults < 1) { setPartyError('At least 1 adult is required.'); return }
     setPartyError(null)
@@ -225,46 +282,53 @@ export function RoomPartyStep({ rooms }: Props) {
     setFiltered(matches)
     setPartyLocked(true)
     setSelectedId(null)
-    setBreakdown(null)
-    setCalcError(null)
-    setDraft({ adults, infants, child46, child711, roomTypeId: null, priceBreakdown: null })
+    setPriceMap({})
+    setNightsBefore(0)
+    setNightsAfter(0)
+    setDraft({ adults, infants, child46, child711, roomTypeId: null, priceBreakdown: null, extraNightsBefore: 0, extraNightsAfter: 0 })
+
+    if (matches.length === 0) return
+
+    startTransition(async () => {
+      const prices = await calcAllPrices(matches.map(r => r.id), { adults, infants, child46, child711 })
+      setPriceMap(prices)
+    })
   }
 
   function handleEditParty() {
     setPartyLocked(false)
     setSelectedId(null)
-    setBreakdown(null)
-    setCalcError(null)
+    setPriceMap({})
     setFiltered([])
   }
 
-  // ── Step B: select room → auto-calculate price ────────────────────────────
+  // ── Select room (instant — price already loaded) ──────────────────────────
   function handleSelectRoom(id: string) {
     setSelectedId(id)
-    setBreakdown(null)
-    setCalcError(null)
+    setNightsBefore(0)
+    setNightsAfter(0)
+    const bd = priceMap[id] ?? null
+    setDraft({ roomTypeId: id, priceBreakdown: bd, extraNightsBefore: 0, extraNightsAfter: 0 })
+  }
 
-    startTransition(async () => {
-      const result = await calcPrice(id, { adults, infants, child46, child711 })
-      if (!result.ok) {
-        setCalcError(result.errors.map(e => e.message).join(' '))
-        return
-      }
-      setBreakdown(result.breakdown)
-      setDraft({ roomTypeId: id, adults, infants, child46, child711, priceBreakdown: result.breakdown })
-    })
+  function handleNightsBefore(v: number) {
+    setNightsBefore(v)
+    setDraft({ extraNightsBefore: v })
+  }
+  function handleNightsAfter(v: number) {
+    setNightsAfter(v)
+    setDraft({ extraNightsAfter: v })
   }
 
   function handleContinue() {
     router.push('/book/occupants')
   }
 
-  const selectedRoom = rooms.find(r => r.id === selectedId) ?? null
+  const selectedBreakdown = selectedId ? (priceMap[selectedId] ?? null) : null
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* Page heading */}
+      {/* Heading */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gold-deep)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
           Step 1 of 4
@@ -277,50 +341,39 @@ export function RoomPartyStep({ rooms }: Props) {
         </p>
       </div>
 
-      {/* ── Phase 1: Party form ── */}
-      <div className="card card-pad" style={{ maxWidth: 460, marginBottom: 28, marginLeft: 'auto', marginRight: 'auto' }}>
-
+      {/* ── Party card ── */}
+      <div className="card card-pad" style={{ maxWidth: 460, marginLeft: 'auto', marginRight: 'auto', marginBottom: 28 }}>
         {partyLocked ? (
-          /* Locked summary */
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>Your group</div>
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>
                 {[
                   `${adults} adult${adults !== 1 ? 's' : ''}`,
-                  infants  ? `${infants} infant${infants > 1 ? 's' : ''}`           : null,
-                  child46  ? `${child46} child${child46 > 1 ? 'ren' : ''} (4–6)`    : null,
-                  child711 ? `${child711} child${child711 > 1 ? 'ren' : ''} (7–11)` : null,
+                  infants  ? `${infants} infant${infants  > 1 ? 's' : ''}`            : null,
+                  child46  ? `${child46} child${child46  > 1 ? 'ren' : ''} (4–6)`     : null,
+                  child711 ? `${child711} child${child711 > 1 ? 'ren' : ''} (7–11)`   : null,
                 ].filter(Boolean).join(', ')}
               </div>
             </div>
-            <button type="button" onClick={handleEditParty} className="btn btn-sm">
-              Edit
-            </button>
+            <button type="button" onClick={handleEditParty} className="btn btn-sm">Edit</button>
           </div>
         ) : (
-          /* Editable counters */
           <>
-            <h2 style={{ margin: '0 0 2px', fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em' }}>
-              Group size
-            </h2>
+            <h2 style={{ margin: '0 0 2px', fontSize: 15, fontWeight: 600 }}>Group size</h2>
             <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)' }}>
               Full names and dates of birth are collected on the next step.
             </p>
-
             <Counter label="Adults"   sub="Age 12+"  value={adults}  onChange={setAdults}  min={1} />
             <Counter label="Infants"  sub="Age 0–3"  value={infants} onChange={setInfants} />
             <Counter label="Children" sub="Age 4–6"  value={child46} onChange={setChild46} />
             <Counter label="Children" sub="Age 7–11" value={child711}onChange={setChild711}/>
-
             {partyError && (
               <div style={{ margin: '10px 0 0', padding: '9px 12px', borderRadius: 6, background: 'var(--danger-soft)', fontSize: 12.5, color: 'var(--danger)' }}>
                 {partyError}
               </div>
             )}
-
-            <button type="button" onClick={handleFindRooms}
-              className="btn btn-primary"
+            <button type="button" onClick={handleFindRooms} className="btn btn-primary"
               style={{ marginTop: 16, width: '100%', justifyContent: 'center', gap: 8 }}>
               Find available rooms
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -331,57 +384,50 @@ export function RoomPartyStep({ rooms }: Props) {
         )}
       </div>
 
-      {/* ── Phase 2: Room grid (only shown after party locked) ── */}
+      {/* ── Room grid ── */}
       {partyLocked && (
         <div style={{ maxWidth: 860, marginLeft: 'auto', marginRight: 'auto' }}>
-          <h2 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em' }}>
+          <h2 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600 }}>
             {filtered.length > 0
               ? `${filtered.length} room${filtered.length !== 1 ? 's' : ''} available for your group`
               : 'No rooms available for this group size'}
           </h2>
 
           {filtered.length === 0 ? (
-            <div className="card card-pad" style={{ color: 'var(--muted)', fontSize: 13 }}>
-              Unfortunately no rooms can accommodate this group. Try adjusting your numbers or{' '}
-              <a href="mailto:bookings@lightuponlight.com" style={{ color: 'var(--gold-deep)' }}>contact us</a> directly.
+            <div className="card card-pad" style={{ fontSize: 13, color: 'var(--muted)' }}>
+              No rooms can accommodate this group. Try adjusting your numbers or{' '}
+              <a href="mailto:bookings@lightuponlight.com" style={{ color: 'var(--gold-deep)' }}>contact us</a>.
             </div>
           ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 24,
-              marginBottom: 4,
-            }}>
-              {filtered.map(room => (
-                <RoomCard
-                  key={room.id}
-                  room={room}
-                  selected={selectedId === room.id}
-                  onSelect={() => handleSelectRoom(room.id)}
-                />
-              ))}
-            </div>
+            <>
+              {isPending && Object.keys(priceMap).length === 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: 'var(--muted)', fontSize: 12.5 }}>
+                  <span className="auth-spin" style={{ borderTopColor: 'var(--gold-deep)', borderColor: 'var(--line-2)' }} />
+                  Loading prices…
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 24 }}>
+                {filtered.map(room => (
+                  <RoomCard
+                    key={room.id}
+                    room={room}
+                    selected={selectedId === room.id}
+                    price={priceMap[room.id] ?? null}
+                    onSelect={() => handleSelectRoom(room.id)}
+                  />
+                ))}
+              </div>
+            </>
           )}
 
-          {/* Calculating spinner */}
-          {isPending && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', color: 'var(--muted)', fontSize: 13 }}>
-              <span className="auth-spin" style={{ borderTopColor: 'var(--gold-deep)', borderColor: 'var(--line-2)' }} />
-              Calculating your price…
-            </div>
-          )}
-
-          {calcError && (
-            <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 6, background: 'var(--danger-soft)', fontSize: 12.5, color: 'var(--danger)' }}>
-              {calcError}
-            </div>
-          )}
-
-          {/* Price breakdown */}
-          {breakdown && selectedRoom && !isPending && (
-            <PriceCard
-              breakdown={breakdown}
-              isBundle={selectedRoom.isBundle}
+          {/* Extra nights + price card */}
+          {selectedBreakdown && (
+            <ExtraNightsAndPrice
+              breakdown={selectedBreakdown}
+              nightsBefore={nightsBefore}
+              nightsAfter={nightsAfter}
+              onNightsBefore={handleNightsBefore}
+              onNightsAfter={handleNightsAfter}
               onContinue={handleContinue}
             />
           )}

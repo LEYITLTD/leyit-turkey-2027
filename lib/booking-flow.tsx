@@ -45,6 +45,10 @@ export interface BookingDraft {
 
   // Step 3 — identity handled by NextAuth session (no draft state needed)
 
+  // Extra nights (chosen after room selection, before step 2)
+  extraNightsBefore: number
+  extraNightsAfter:  number
+
   // Step 4
   plan:         'FULL' | 'INSTALMENT' | null
   discountCode: string | null
@@ -58,10 +62,12 @@ const EMPTY_DRAFT: BookingDraft = {
   child46:        0,
   child711:       0,
   priceBreakdown: null,
-  occupants:      [],
-  plan:           null,
-  discountCode:   null,
-  discountAmt:    0,
+  occupants:         [],
+  extraNightsBefore: 0,
+  extraNightsAfter:  0,
+  plan:              null,
+  discountCode:      null,
+  discountAmt:       0,
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
