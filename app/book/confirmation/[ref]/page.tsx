@@ -11,16 +11,22 @@ export function generateMetadata() {
 }
 
 interface Props {
-  params:      { ref: string }
-  searchParams: { session_id?: string }
+  params:       { ref: string }
+  searchParams: { paid?: string; redirect_status?: string }
 }
 
-export default async function ConfirmationPage({ params }: Props) {
+export default async function ConfirmationPage({ params, searchParams }: Props) {
   const session = await getServerSession(authOptions)
   if (!session) redirect('/auth/signin')
 
   const booking = await getBookingConfirmation(params.ref)
   if (!booking) redirect('/book')
 
-  return <ConfirmationView booking={booking} />
+  // paid=true  → came from successful confirmPayment on-page
+  // redirect_status=succeeded → came back from a 3DS redirect
+  const justPaid =
+    searchParams.paid === 'true' ||
+    searchParams.redirect_status === 'succeeded'
+
+  return <ConfirmationView booking={booking} justPaid={justPaid} />
 }

@@ -185,7 +185,7 @@ export function ReviewStep({ rooms }: Props) {
       bookingRef={bookingRef}
       amountToday={amountTodayCapture}
       plan={plan}
-      onSuccess={() => { reset(); router.push(`/book/confirmation/${bookingRef}`) }}
+      onSuccess={() => { reset(); router.push(`/book/confirmation/${bookingRef}?paid=true`) }}
     />
   }
 
@@ -256,7 +256,7 @@ export function ReviewStep({ rooms }: Props) {
       if (!result.clientSecret) {
         // Stripe not configured — clear draft and go straight to confirmation
         reset()
-        router.push(`/book/confirmation/${result.ref}`)
+        router.push(`/book/confirmation/${result.ref}?paid=true`)
         return
       }
 
