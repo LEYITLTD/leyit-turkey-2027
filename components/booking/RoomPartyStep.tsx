@@ -278,7 +278,7 @@ export function RoomPartyStep({ rooms }: Props) {
       </div>
 
       {/* ── Phase 1: Party form ── */}
-      <div className="card card-pad" style={{ maxWidth: 460, marginBottom: 28 }}>
+      <div className="card card-pad" style={{ maxWidth: 460, marginBottom: 28, marginLeft: 'auto', marginRight: 'auto' }}>
 
         {partyLocked ? (
           /* Locked summary */
