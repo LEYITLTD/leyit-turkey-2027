@@ -298,6 +298,9 @@ export function AccountStep() {
         setMode('signin')
         return
       }
+      // refresh() tells Next.js to re-fetch server components with the new
+      // session cookie before we push to the next page
+      router.refresh()
       router.push('/book/review')
     })
   }
@@ -315,6 +318,7 @@ export function AccountStep() {
         setError('Incorrect email or password. Please try again.')
         return
       }
+      router.refresh()
       router.push('/book/review')
     })
   }

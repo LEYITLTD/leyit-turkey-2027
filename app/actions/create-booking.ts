@@ -1,7 +1,7 @@
 'use server'
 
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getToken } from 'next-auth/jwt'
+import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 import { getStripe } from '@/lib/stripe'
 import { buildInstalmentSchedule } from '@/lib/pricing'
@@ -36,10 +36,19 @@ export interface CreateBookingInput {
 // ─── Action ───────────────────────────────────────────────────────────────────
 
 export async function createBooking(input: CreateBookingInput) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) {
+  // Use getToken (reads JWT directly from cookie) — more reliable than
+  // getServerSession in Next.js 15/16 App Router server actions.
+  const cookieStore = await cookies()
+  const token = await getToken({
+    req:    { cookies: Object.fromEntries(cookieStore.getAll().map(c => [c.name, c.value])) } as any,
+    secret: process.env.NEXTAUTH_SECRET ?? '',
+  })
+  if (!token?.sub) {
     return { ok: false as const, error: 'You must be signed in to complete a booking.' }
   }
+
+  const userId    = token.sub
+  const userEmail = (token.email as string | undefined) ?? token.sub
 
   const extraCost   = (input.extraNightsBefore + input.extraNightsAfter) * input.ratePerExtraNight
   const totalAmount = Math.max(0, input.baseTotal + extraCost - input.discountAmt)
@@ -50,7 +59,7 @@ export async function createBooking(input: CreateBookingInput) {
   const booking = await prisma.booking.create({
     data: {
       ref,
-      userId:    session.user.id,
+      userId:    userId,
       roomTypeId: input.roomTypeId,
       adults:    input.adults,
       infants:   input.infants,
@@ -99,7 +108,7 @@ export async function createBooking(input: CreateBookingInput) {
     data: {
       bookingId: booking.id,
       action:    'BOOKING_CREATED',
-      actor:     session.user.email ?? session.user.id,
+      actor:     userEmail,
       newState:  { ref, totalAmount, plan: input.plan },
     },
   })
