@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useState, useEffect } from 'react'
 import type { MyBooking } from '@/app/actions/get-my-bookings'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -35,29 +36,103 @@ function StatusPill({ status }: { status: string }) {
   return <span className={cls}>{label}</span>
 }
 
-// ── Stat tile ─────────────────────────────────────────────────────────────────
+// ── Countdown ─────────────────────────────────────────────────────────────────
 
-function StatTile({ label, value, soft }: { label: string; value: string; soft: string }) {
+const RETREAT_DATE = new Date('2027-03-30T00:00:00')
+
+function getTimeLeft() {
+  const diff = RETREAT_DATE.getTime() - Date.now()
+  if (diff <= 0) return { days: 0, hours: 0, minutes: 0, seconds: 0, past: true }
+  return {
+    days:    Math.floor(diff / (1000 * 60 * 60 * 24)),
+    hours:   Math.floor((diff / (1000 * 60 * 60)) % 24),
+    minutes: Math.floor((diff / (1000 * 60)) % 60),
+    seconds: Math.floor((diff / 1000) % 60),
+    past:    false,
+  }
+}
+
+function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
-    <div style={{
-      background: `var(--${soft})`,
-      border: '1px solid var(--line)',
-      borderRadius: 'var(--radius-lg)',
-      padding: '14px 18px',
-    }}>
+    <div style={{ textAlign: 'center', minWidth: 64 }}>
       <div style={{
-        fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+        fontSize: 38, fontWeight: 800, lineHeight: 1,
+        fontVariantNumeric: 'tabular-nums',
+        color: 'var(--gold-deep)',
+        letterSpacing: '-0.03em',
+      }}>
+        {String(value).padStart(2, '0')}
+      </div>
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
         textTransform: 'uppercase', color: 'var(--muted)',
-        marginBottom: 6,
+        marginTop: 4,
       }}>
         {label}
       </div>
+    </div>
+  )
+}
+
+function CountdownBanner() {
+  const [time, setTime] = useState(getTimeLeft)
+
+  useEffect(() => {
+    const id = setInterval(() => setTime(getTimeLeft()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div style={{
+      background: 'var(--gold-soft)',
+      border: '1px solid var(--line)',
+      borderRadius: 'var(--radius-lg)',
+      padding: '22px 24px',
+      marginBottom: 28,
+    }}>
+      {/* Label */}
       <div style={{
-        fontSize: 22, fontWeight: 700,
-        color: 'var(--ink)', fontVariantNumeric: 'tabular-nums',
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+        textTransform: 'uppercase', color: 'var(--gold-deep)',
+        marginBottom: 14,
+        display: 'flex', alignItems: 'center', gap: 6,
       }}>
-        {value}
+        <span>🕌</span>
+        <span>Turkey Retreat begins in</span>
       </div>
+
+      {/* Countdown units */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, flexWrap: 'wrap' }}>
+        <CountdownUnit value={time.days}    label="days"    />
+        <Colon />
+        <CountdownUnit value={time.hours}   label="hours"   />
+        <Colon />
+        <CountdownUnit value={time.minutes} label="minutes" />
+        <Colon />
+        <CountdownUnit value={time.seconds} label="seconds" />
+      </div>
+
+      {/* Date line */}
+      <div style={{
+        marginTop: 16,
+        fontSize: 12.5, color: 'var(--muted)',
+        borderTop: '1px solid var(--line)',
+        paddingTop: 12,
+      }}>
+        ✦ 30 March 2027 — Bodrum, Turkey
+      </div>
+    </div>
+  )
+}
+
+function Colon() {
+  return (
+    <div style={{
+      fontSize: 28, fontWeight: 700,
+      color: 'var(--line-2)', lineHeight: 1,
+      paddingTop: 4, userSelect: 'none',
+    }}>
+      :
     </div>
   )
 }
@@ -144,7 +219,6 @@ function BookingCard({ b }: { b: MyBooking }) {
               className="progress-fill"
               style={{
                 width: `${pct}%`,
-                // Override gradient to green when fully paid
                 ...(pct === 100 ? { background: 'var(--success)' } : {}),
               }}
             />
@@ -236,14 +310,10 @@ interface Props {
 }
 
 export function DashboardView({ bookings, userName }: Props) {
-  const totalPaid        = bookings.reduce((s, b) => s + b.paidAmount, 0)
-  const totalOutstanding = bookings.reduce((s, b) => s + Math.max(0, b.totalAmount - b.paidAmount), 0)
-  const totalValue       = bookings.reduce((s, b) => s + b.totalAmount, 0)
-
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
 
-      {/* ── Header — matches the booking flow header exactly ── */}
+      {/* ── Header ── */}
       <header style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
         <div style={{ maxWidth: 920, margin: '0 auto', padding: '10px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -300,18 +370,8 @@ export function DashboardView({ bookings, userName }: Props) {
           </p>
         </div>
 
-        {/* Stats strip — only when bookings exist */}
-        {bookings.length > 0 && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: 12, marginBottom: 28,
-          }}>
-            <StatTile label="Total paid"    value={fmt(totalPaid)}        soft="success-soft" />
-            <StatTile label="Outstanding"   value={fmt(totalOutstanding)} soft="warning-soft" />
-            <StatTile label="Booking value" value={fmt(totalValue)}       soft="surface-2"    />
-          </div>
-        )}
+        {/* Countdown — always shown */}
+        <CountdownBanner />
 
         {/* Bookings list */}
         {bookings.length === 0 ? (
