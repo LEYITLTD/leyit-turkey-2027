@@ -51,8 +51,9 @@ export async function initiatePayment(input: InitiatePaymentInput) {
   const userEmail = (token.email as string | undefined) ?? token.sub
 
   // ── Totals ───────────────────────────────────────────────────────────────────
-  const extraCost   = (input.extraNightsBefore + input.extraNightsAfter) * input.ratePerExtraNight
-  const totalAmount = Math.max(0, input.baseTotal + extraCost - input.discountAmt)
+  const extraNightsTotal = input.extraNightsBefore + input.extraNightsAfter
+  const extraCost        = extraNightsTotal * input.ratePerExtraNight
+  const totalAmount      = Math.max(0, input.baseTotal + extraCost - input.discountAmt)
 
   const ref = generateRef()
 
@@ -66,14 +67,17 @@ export async function initiatePayment(input: InitiatePaymentInput) {
       infants:     input.infants,
       child46:     input.child46,
       child711:    input.child711,
-      needsBed:    input.child711 > 0,
-      needsCot:    input.infants  > 0,
+      needsBed:          input.child711 > 0,
+      needsCot:          input.infants  > 0,
+      extraNightsBefore: input.extraNightsBefore,
+      extraNightsAfter:  input.extraNightsAfter,
+      extraNightsCost:   extraCost,
       totalAmount,
-      paidAmount:  0,
-      status:      'DEPOSIT_ONLY',
-      plan:        input.plan,
-      discountCode: input.discountCode,
-      discountAmt:  input.discountAmt,
+      paidAmount:        0,
+      status:            'DEPOSIT_ONLY',
+      plan:              input.plan,
+      discountCode:      input.discountCode,
+      discountAmt:       input.discountAmt,
       occupants: {
         create: input.occupants.map(o => ({
           name:   o.name,
@@ -118,6 +122,10 @@ export async function initiatePayment(input: InitiatePaymentInput) {
   const stripe    = getStripe()
   const amountNow = input.plan === 'FULL' ? totalAmount : schedule[0].amount
 
+  // ── Human-readable pence → £ helper for metadata strings ───────────────────
+  const gbp = (pence: number) =>
+    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(pence / 100)
+
   if (stripe) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount:   amountNow,
@@ -126,12 +134,45 @@ export async function initiatePayment(input: InitiatePaymentInput) {
       // configured in the Stripe Dashboard (cards, Apple Pay, Google Pay, etc.)
       automatic_payment_methods: { enabled: true },
       description: input.plan === 'FULL'
-        ? 'Light Upon Light Turkey Retreat 2027 — Full payment'
-        : 'Light Upon Light Turkey Retreat 2027 — Deposit (25%)',
+        ? `Light Upon Light Turkey Retreat 2027 — Full payment (${ref})`
+        : `Light Upon Light Turkey Retreat 2027 — Deposit 25% (${ref})`,
       metadata: {
-        bookingId:        booking.id,
+        // ── Booking identity ──────────────────────────────────────────────────
         bookingRef:       ref,
+        bookingId:        booking.id,
         instalmentNumber: '1',
+        plan:             input.plan,
+
+        // ── Party ─────────────────────────────────────────────────────────────
+        adults:    String(input.adults),
+        infants:   String(input.infants),
+        child46:   String(input.child46),
+        child711:  String(input.child711),
+
+        // ── Cost breakdown (pence + formatted) ────────────────────────────────
+        cost_retreat:           String(input.baseTotal),
+        cost_retreat_fmt:       gbp(input.baseTotal),
+
+        ...(extraNightsTotal > 0 ? {
+          extra_nights_before:  String(input.extraNightsBefore),
+          extra_nights_after:   String(input.extraNightsAfter),
+          extra_nights_rate:    gbp(input.ratePerExtraNight),
+          cost_extra_nights:    String(extraCost),
+          cost_extra_nights_fmt: gbp(extraCost),
+        } : {}),
+
+        ...(input.discountAmt > 0 ? {
+          discount_code:      input.discountCode ?? '',
+          cost_discount:      String(-input.discountAmt),
+          cost_discount_fmt:  `-${gbp(input.discountAmt)}`,
+        } : {}),
+
+        cost_total:     String(totalAmount),
+        cost_total_fmt: gbp(totalAmount),
+
+        // ── What's being charged now ──────────────────────────────────────────
+        charge_today:     String(amountNow),
+        charge_today_fmt: gbp(amountNow),
       },
     })
 

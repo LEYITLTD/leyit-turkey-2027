@@ -56,14 +56,17 @@ model Booking {
   infants      Int           @default(0) // age 0–3
   child46      Int           @default(0) // age 4–6
   child711     Int           @default(0) // age 7–11
-  needsBed     Boolean       @default(false) // derived, stored for hotel export
-  needsCot     Boolean       @default(false) // derived, stored for hotel export
-  totalAmount  Int                           // pence
-  paidAmount   Int           @default(0)     // pence
-  status       BookingStatus @default(DEPOSIT_ONLY)
-  plan         PaymentPlan
-  discountCode String?
-  discountAmt  Int           @default(0)     // pence — from discount code
+  needsBed           Boolean       @default(false) // derived, stored for hotel export
+  needsCot           Boolean       @default(false) // derived, stored for hotel export
+  extraNightsBefore  Int           @default(0)     // nights added before retreat
+  extraNightsAfter   Int           @default(0)     // nights added after retreat
+  extraNightsCost    Int           @default(0)     // pence — total cost of extra nights
+  totalAmount        Int                           // pence
+  paidAmount         Int           @default(0)     // pence
+  status             BookingStatus @default(DEPOSIT_ONLY)
+  plan               PaymentPlan
+  discountCode       String?
+  discountAmt        Int           @default(0)     // pence — from discount code
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
