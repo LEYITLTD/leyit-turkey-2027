@@ -106,6 +106,45 @@ function PlanCard({ selected, title, sub, amount, onClick }: {
   )
 }
 
+// ─── Payment screen (rendered after initiatePayment succeeds) ────────────────
+// Lives outside ReviewStep so it never unmounts when ReviewStep's draft
+// state changes after reset().
+
+function PaymentScreen({ clientSecret, bookingRef, amountToday, plan, onSuccess }: {
+  clientSecret: string
+  bookingRef:   string
+  amountToday:  number
+  plan:         'FULL' | 'INSTALMENT'
+  onSuccess:    () => void
+}) {
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gold-deep)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+          Step 4 of 4
+        </div>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>
+          Payment details
+        </h1>
+        <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--muted)' }}>
+          Booking ref <strong>{bookingRef}</strong> · {formatGBP(amountToday)} {plan === 'INSTALMENT' ? 'deposit' : 'full payment'}
+        </p>
+      </div>
+
+      <div style={{ maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
+        <div className="card card-pad">
+          <PaymentForm
+            clientSecret={clientSecret}
+            bookingRef={bookingRef}
+            amountLabel={formatGBP(amountToday)}
+            onSuccess={onSuccess}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function ReviewStep({ rooms }: Props) {
@@ -122,15 +161,33 @@ export function ReviewStep({ rooms }: Props) {
   const [error,       setError]       = useState<string | null>(null)
 
   // Payment state — set after initiatePayment succeeds
-  const [clientSecret, setClientSecret] = useState<string | null>(null)
-  const [bookingRef,   setBookingRef]   = useState<string | null>(null)
+  const [clientSecret,       setClientSecret]       = useState<string | null>(null)
+  const [bookingRef,         setBookingRef]         = useState<string | null>(null)
+  // Capture the amount at the moment Pay is clicked so the payment screen
+  // can display it even after the draft has been reset()
+  const [amountTodayCapture, setAmountTodayCapture] = useState(0)
 
-  // Guards
+  // Guards — skip entirely once payment has been initiated (draft will be
+  // stale after reset() but we don't want a redirect mid-payment)
   useEffect(() => {
+    if (clientSecret) return
     if (status === 'unauthenticated')       router.replace('/book/account')
     else if (!draft.roomTypeId)             router.replace('/book')
     else if (!draft.occupants.length)       router.replace('/book/occupants')
-  }, [status, draft.roomTypeId, draft.occupants.length, router])
+  }, [clientSecret, status, draft.roomTypeId, draft.occupants.length, router])
+
+  // ── Show payment form BEFORE any draft-dependent checks ───────────────────
+  // Once clientSecret is set the draft may be cleared; we must not fall
+  // through to the spinner or summary which both read draft fields.
+  if (clientSecret && bookingRef) {
+    return <PaymentScreen
+      clientSecret={clientSecret}
+      bookingRef={bookingRef}
+      amountToday={amountTodayCapture}
+      plan={plan}
+      onSuccess={() => { reset(); router.push(`/book/confirmation/${bookingRef}`) }}
+    />
+  }
 
   if (status === 'loading' || !draft.roomTypeId || !draft.priceBreakdown) {
     return (
@@ -175,6 +232,8 @@ export function ReviewStep({ rooms }: Props) {
   function handleInitiatePayment() {
     setError(null)
     setDraft({ plan })
+    // Snapshot the amount NOW before the draft could change
+    const snapshot = amountToday
     startTransition(async () => {
       const result = await initiatePayment({
         roomTypeId:        draft.roomTypeId!,
@@ -194,59 +253,21 @@ export function ReviewStep({ rooms }: Props) {
 
       if (!result.ok) { setError(result.error); return }
 
-      reset() // clear draft — booking is now in DB
-
       if (!result.clientSecret) {
-        // Stripe not configured yet — go straight to confirmation
+        // Stripe not configured — clear draft and go straight to confirmation
+        reset()
         router.push(`/book/confirmation/${result.ref}`)
         return
       }
 
-      // Show the embedded payment form
+      // Capture amount for the payment screen, then show it.
+      // Do NOT call reset() here — the guard reads draft.roomTypeId and
+      // would redirect to /book the moment the draft is cleared.
+      // reset() is called via onSuccess after confirmPayment succeeds.
+      setAmountTodayCapture(snapshot)
       setClientSecret(result.clientSecret)
       setBookingRef(result.ref)
     })
-  }
-
-  // ── Payment form is showing ───────────────────────────────────────────────────
-  if (clientSecret && bookingRef) {
-    return (
-      <div>
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gold-deep)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
-            Step 4 of 4
-          </div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>
-            Payment details
-          </h1>
-          <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--muted)' }}>
-            Booking ref <strong>{bookingRef}</strong> · paying {formatGBP(amountToday)} {plan === 'INSTALMENT' ? '(deposit)' : 'in full'}
-          </p>
-        </div>
-
-        <div style={{ maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
-          <div className="card card-pad">
-            <PaymentForm
-              clientSecret={clientSecret}
-              bookingRef={bookingRef}
-              amountLabel={formatGBP(amountToday)}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => { setClientSecret(null); setBookingRef(null) }}
-            style={{
-              all: 'unset', boxSizing: 'border-box',
-              display: 'block', margin: '12px auto 0',
-              fontSize: 13, color: 'var(--muted)', cursor: 'pointer',
-              textDecoration: 'underline',
-            }}
-          >
-            ← Back to order summary
-          </button>
-        </div>
-      </div>
-    )
   }
 
   // ── Order summary + plan selection ────────────────────────────────────────────

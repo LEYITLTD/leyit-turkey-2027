@@ -12,10 +12,13 @@ import { stripePromise } from '@/lib/stripe-client'
 
 // ─── Inner form (must be inside <Elements>) ───────────────────────────────────
 
-function CheckoutForm({ bookingRef, amountLabel }: { bookingRef: string; amountLabel: string }) {
+function CheckoutForm({ bookingRef, amountLabel, onSuccess }: {
+  bookingRef:  string
+  amountLabel: string
+  onSuccess:   () => void
+}) {
   const stripe   = useStripe()
   const elements = useElements()
-  const router   = useRouter()
 
   const [isPending, setIsPending] = useState(false)
   const [error,     setError]     = useState<string | null>(null)
@@ -44,7 +47,8 @@ function CheckoutForm({ bookingRef, amountLabel }: { bookingRef: string; amountL
     }
 
     if (paymentIntent?.status === 'succeeded') {
-      router.push(`/book/confirmation/${bookingRef}`)
+      // onSuccess resets the draft and navigates to confirmation
+      onSuccess()
       return
     }
 
@@ -119,9 +123,10 @@ interface Props {
   clientSecret: string
   bookingRef:   string
   amountLabel:  string
+  onSuccess:    () => void
 }
 
-export function PaymentForm({ clientSecret, bookingRef, amountLabel }: Props) {
+export function PaymentForm({ clientSecret, bookingRef, amountLabel, onSuccess }: Props) {
   if (!stripePromise) {
     return (
       <div style={{ padding: '20px 0', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
@@ -172,7 +177,7 @@ export function PaymentForm({ clientSecret, bookingRef, amountLabel }: Props) {
 
   return (
     <Elements stripe={stripePromise} options={options}>
-      <CheckoutForm bookingRef={bookingRef} amountLabel={amountLabel} />
+      <CheckoutForm bookingRef={bookingRef} amountLabel={amountLabel} onSuccess={onSuccess} />
     </Elements>
   )
 }
