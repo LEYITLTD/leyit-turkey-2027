@@ -74,7 +74,8 @@ function RoomCard({ room, selected, price, onSelect }: {
 
   return (
     <button type="button" onClick={onSelect} aria-pressed={selected} style={{
-      all: 'unset', display: 'block', width: '100%', cursor: 'pointer',
+      all: 'unset', boxSizing: 'border-box', minWidth: 0,
+      display: 'block', width: '100%', cursor: 'pointer',
       borderRadius: 10,
       border: selected ? '2px solid var(--gold-deep)' : '1.5px solid var(--line)',
       background: selected ? 'oklch(0.985 0.012 85)' : 'var(--surface)',
