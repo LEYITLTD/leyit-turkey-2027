@@ -22,47 +22,41 @@ function partyLine(b: MyBooking) {
   ].filter(Boolean).join(', ')
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
+// ── Status pill ───────────────────────────────────────────────────────────────
 
-const STATUS_MAP: Record<string, { label: string; color: string; bg: string; dot: string }> = {
-  DEPOSIT_ONLY:   { label: 'Deposit paid',    color: '#92400e', bg: '#fef3c7', dot: '#f59e0b' },
-  PARTIALLY_PAID: { label: 'Partially paid',  color: '#1e40af', bg: '#dbeafe', dot: '#3b82f6' },
-  FULLY_PAID:     { label: 'Fully paid',      color: '#065f46', bg: '#d1fae5', dot: '#10b981' },
-  CANCELLED:      { label: 'Cancelled',       color: '#6b7280', bg: '#f3f4f6', dot: '#9ca3af' },
+function StatusPill({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    DEPOSIT_ONLY:   { label: 'Deposit paid',   cls: 'pill pill-warning' },
+    PARTIALLY_PAID: { label: 'Partially paid', cls: 'pill pill-info'    },
+    FULLY_PAID:     { label: 'Fully paid',     cls: 'pill pill-success' },
+    CANCELLED:      { label: 'Cancelled',      cls: 'pill pill-muted'   },
+  }
+  const { label, cls } = map[status] ?? { label: status, cls: 'pill pill-muted' }
+  return <span className={cls}>{label}</span>
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_MAP[status] ?? { label: status, color: '#6b7280', bg: '#f3f4f6', dot: '#9ca3af' }
+// ── Stat tile ─────────────────────────────────────────────────────────────────
+
+function StatTile({ label, value, soft }: { label: string; value: string; soft: string }) {
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '3px 10px', borderRadius: 99,
-      fontSize: 12, fontWeight: 500,
-      color: s.color, background: s.bg,
+    <div style={{
+      background: `var(--${soft})`,
+      border: '1px solid var(--line)',
+      borderRadius: 'var(--radius-lg)',
+      padding: '14px 18px',
     }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
-      {s.label}
-    </span>
-  )
-}
-
-// ── Progress bar ──────────────────────────────────────────────────────────────
-
-function PaymentProgress({ paid, total }: { paid: number; total: number }) {
-  const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, fontSize: 12 }}>
-        <span style={{ color: '#6b7280' }}>Paid</span>
-        <span style={{ fontWeight: 600, color: '#1a2744' }}>{fmt(paid)} <span style={{ fontWeight: 400, color: '#9ca3af' }}>of {fmt(total)}</span></span>
+      <div style={{
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+        textTransform: 'uppercase', color: 'var(--muted)',
+        marginBottom: 6,
+      }}>
+        {label}
       </div>
-      <div style={{ height: 6, borderRadius: 99, background: '#f3f4f6', overflow: 'hidden' }}>
-        <div style={{
-          height: '100%', borderRadius: 99,
-          width: `${pct}%`,
-          background: pct === 100 ? '#10b981' : 'var(--color-gold, #c9a961)',
-          transition: 'width 400ms',
-        }} />
+      <div style={{
+        fontSize: 22, fontWeight: 700,
+        color: 'var(--ink)', fontVariantNumeric: 'tabular-nums',
+      }}>
+        {value}
       </div>
     </div>
   )
@@ -71,52 +65,61 @@ function PaymentProgress({ paid, total }: { paid: number; total: number }) {
 // ── Booking card ──────────────────────────────────────────────────────────────
 
 function BookingCard({ b }: { b: MyBooking }) {
-  const extraNights = b.extraNightsBefore + b.extraNightsAfter
+  const extraNights  = b.extraNightsBefore + b.extraNightsAfter
   const isInstalment = b.plan === 'INSTALMENT'
+  const pct          = b.totalAmount > 0
+    ? Math.min(100, Math.round((b.paidAmount / b.totalAmount) * 100))
+    : 0
 
   return (
-    <div style={{
-      background: '#fff',
-      border: '1px solid #e5e7eb',
-      borderRadius: 14,
-      overflow: 'hidden',
-    }}>
-      {/* Header */}
+    <div className="card" style={{ overflow: 'hidden' }}>
+
+      {/* ── Card header ── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 20px',
-        background: '#f9f7f0',
-        borderBottom: '1px solid #eceae2',
-        gap: 12, flexWrap: 'wrap',
+        flexWrap: 'wrap', gap: 8,
+        padding: '12px 18px',
+        background: 'var(--surface-2)',
+        borderBottom: '1px solid var(--line)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 15, letterSpacing: '0.08em', color: '#1a2744' }}>
+          <span className="mono" style={{
+            fontSize: 14, fontWeight: 700,
+            letterSpacing: '0.1em', color: 'var(--ink)',
+          }}>
             {b.ref}
           </span>
-          <StatusBadge status={b.status} />
+          <StatusPill status={b.status} />
+          {b.plan === 'INSTALMENT' && (
+            <span className="pill pill-muted" style={{ fontSize: 10 }}>Instalments</span>
+          )}
         </div>
-        <span style={{ fontSize: 12, color: '#9ca3af' }}>Booked {fmtDate(b.createdAt)}</span>
+        <span style={{ fontSize: 11.5, color: 'var(--muted-2)' }}>
+          Booked {fmtDate(b.createdAt)}
+        </span>
       </div>
 
-      {/* Body */}
-      <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* ── Card body ── */}
+      <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-        {/* Room + party */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {/* Room + party row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <div style={{
-            width: 36, height: 36, borderRadius: 8, flexShrink: 0,
-            background: 'oklch(0.96 0.025 85)',
+            width: 38, height: 38, borderRadius: 'var(--radius)',
+            background: 'var(--gold-soft)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 17,
-          }}>🏨</div>
+            fontSize: 18, flexShrink: 0,
+          }}>
+            🏨
+          </div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#1a2744', marginBottom: 2 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
               {b.roomName}
             </div>
-            <div style={{ fontSize: 12.5, color: '#6b7280' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
               {partyLine(b)}
               {extraNights > 0 && (
-                <span style={{ marginLeft: 6, color: '#c9a961', fontWeight: 500 }}>
+                <span style={{ marginLeft: 6, color: 'var(--gold-deep)', fontWeight: 600 }}>
                   +{extraNights} extra night{extraNights > 1 ? 's' : ''}
                 </span>
               )}
@@ -125,49 +128,73 @@ function BookingCard({ b }: { b: MyBooking }) {
         </div>
 
         {/* Payment progress */}
-        <PaymentProgress paid={b.paidAmount} total={b.totalAmount} />
+        <div>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            marginBottom: 6, fontSize: 12,
+          }}>
+            <span style={{ color: 'var(--muted)' }}>Paid</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <strong style={{ color: 'var(--ink)' }}>{fmt(b.paidAmount)}</strong>
+              <span style={{ color: 'var(--muted-2)' }}> of {fmt(b.totalAmount)}</span>
+            </span>
+          </div>
+          <div className="progress">
+            <div
+              className="progress-fill"
+              style={{
+                width: `${pct}%`,
+                // Override gradient to green when fully paid
+                ...(pct === 100 ? { background: 'var(--success)' } : {}),
+              }}
+            />
+          </div>
+        </div>
 
-        {/* Plan + next instalment */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: '#6b7280', flexWrap: 'wrap', gap: 6 }}>
-          <span>{b.plan === 'FULL' ? 'Full payment' : 'Instalment plan (4 payments)'}</span>
+        {/* Plan / next instalment */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 4,
+          fontSize: 12.5, color: 'var(--muted)',
+        }}>
+          <span>{isInstalment ? '4-instalment plan' : 'Full payment'}</span>
           {isInstalment && b.nextInstalment && (
             <span>
-              Next: <strong style={{ color: '#1a2744' }}>{fmt(b.nextInstalment.amount)}</strong>
-              {' '}due <strong style={{ color: '#1a2744' }}>{fmtDate(b.nextInstalment.dueDate)}</strong>
+              Next:{' '}
+              <strong style={{ color: 'var(--ink)' }}>{fmt(b.nextInstalment.amount)}</strong>
+              {' '}due{' '}
+              <strong style={{ color: 'var(--ink)' }}>{fmtDate(b.nextInstalment.dueDate)}</strong>
             </span>
           )}
           {isInstalment && !b.nextInstalment && b.status === 'FULLY_PAID' && (
-            <span style={{ color: '#10b981', fontWeight: 500 }}>✓ All payments complete</span>
+            <span style={{ color: 'var(--success)', fontWeight: 500 }}>✓ All payments complete</span>
           )}
         </div>
 
-        {/* Discount */}
+        {/* Discount banner */}
         {b.discountCode && b.discountAmt > 0 && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '7px 10px', borderRadius: 6,
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            fontSize: 12.5, color: '#065f46',
+            padding: '7px 10px', borderRadius: 'var(--radius-sm)',
+            background: 'var(--success-soft)',
+            fontSize: 12.5, color: 'var(--success)',
           }}>
-            <span>🎟 Discount code <strong>{b.discountCode}</strong> applied</span>
+            <span>🎟 Code <strong>{b.discountCode}</strong> applied</span>
             <span style={{ fontWeight: 600 }}>−{fmt(b.discountAmt)}</span>
           </div>
         )}
 
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 8, paddingTop: 2 }}>
-          <Link href={`/book/confirmation/${b.ref}`} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '8px 14px', borderRadius: 7,
-            background: 'var(--color-gold, #c9a961)', color: '#fff',
-            fontSize: 13, fontWeight: 600, textDecoration: 'none',
-          }}>
+        {/* Action */}
+        <div>
+          <Link href={`/book/confirmation/${b.ref}`} className="btn btn-primary btn-sm">
             View booking
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2.5">
               <path d="M5 12h14M13 6l6 6-6 6"/>
             </svg>
           </Link>
         </div>
+
       </div>
     </div>
   )
@@ -177,25 +204,25 @@ function BookingCard({ b }: { b: MyBooking }) {
 
 function EmptyState() {
   return (
-    <div style={{
-      textAlign: 'center', padding: '60px 20px',
-      background: '#fff', border: '1px solid #e5e7eb',
-      borderRadius: 14,
-    }}>
-      <div style={{ fontSize: 48, marginBottom: 16 }}>🌙</div>
-      <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 600, color: '#1a2744' }}>
+    <div className="card card-pad" style={{ textAlign: 'center', padding: '56px 24px' }}>
+      <div style={{ fontSize: 44, marginBottom: 14 }}>🌙</div>
+      <h2 style={{
+        margin: '0 0 8px', fontSize: 17, fontWeight: 600, color: 'var(--ink)',
+      }}>
         No bookings yet
       </h2>
-      <p style={{ margin: '0 0 24px', fontSize: 14, color: '#6b7280', maxWidth: 320, marginLeft: 'auto', marginRight: 'auto' }}>
+      <p style={{
+        margin: '0 0 24px', fontSize: 13.5, color: 'var(--muted)',
+        maxWidth: 300, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6,
+      }}>
         Reserve your place on the Light Upon Light Turkey Retreat 2027.
       </p>
-      <Link href="/book" style={{
-        display: 'inline-block',
-        background: 'var(--color-gold, #c9a961)', color: '#fff',
-        padding: '12px 28px', borderRadius: 8,
-        fontWeight: 600, fontSize: 14, textDecoration: 'none',
-      }}>
+      <Link href="/book" className="btn btn-primary">
         Book now
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" strokeWidth="2.5">
+          <path d="M5 12h14M13 6l6 6-6 6"/>
+        </svg>
       </Link>
     </div>
   )
@@ -209,81 +236,80 @@ interface Props {
 }
 
 export function DashboardView({ bookings, userName }: Props) {
+  const totalPaid        = bookings.reduce((s, b) => s + b.paidAmount, 0)
+  const totalOutstanding = bookings.reduce((s, b) => s + Math.max(0, b.totalAmount - b.paidAmount), 0)
+  const totalValue       = bookings.reduce((s, b) => s + b.totalAmount, 0)
+
   return (
-    <div style={{ minHeight: '100vh', background: '#fafaf7' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
 
-      {/* Top nav */}
-      <div style={{
-        borderBottom: '1px solid #eceae2', background: '#fff',
-        padding: '0 24px',
-      }}>
-        <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: '#1a2744', letterSpacing: '-0.01em' }}>
-              Light Upon Light
-            </span>
-            <span style={{ fontSize: 12, color: '#c9a961', fontWeight: 500 }}>Turkey 2027</span>
-          </Link>
-          <Link href="/book" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '7px 14px', borderRadius: 7,
-            background: 'var(--color-gold, #c9a961)', color: '#fff',
-            fontSize: 13, fontWeight: 600, textDecoration: 'none',
-          }}>
-            + New booking
-          </Link>
+      {/* ── Header — matches the booking flow header exactly ── */}
+      <header style={{ background: 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ maxWidth: 920, margin: '0 auto', padding: '10px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+
+            <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/lul-logo.png"
+                alt="Light Upon Light"
+                style={{ width: 34, height: 34, borderRadius: 8, objectFit: 'contain' }}
+              />
+              <div>
+                <div style={{
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+                  textTransform: 'uppercase', color: 'var(--gold-deep)',
+                }}>
+                  Light Upon Light
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}>
+                  Turkey Retreat 2027
+                </div>
+              </div>
+            </Link>
+
+            <Link href="/book" className="btn btn-primary btn-sm">
+              + New booking
+            </Link>
+
+          </div>
         </div>
-      </div>
+      </header>
 
-      {/* Page content */}
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '36px 24px 80px' }}>
+      {/* ── Page content ── */}
+      <main style={{ maxWidth: 920, margin: '0 auto', padding: '32px 20px 80px' }}>
 
-        {/* Greeting */}
+        {/* Page title */}
         <div style={{ marginBottom: 28 }}>
-          <h1 style={{ margin: '0 0 4px', fontSize: 24, fontWeight: 700, color: '#1a2744' }}>
+          <div style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+            textTransform: 'uppercase', color: 'var(--gold-deep)', marginBottom: 4,
+          }}>
+            My account
+          </div>
+          <h1 style={{
+            margin: '0 0 4px', fontSize: 22, fontWeight: 700,
+            letterSpacing: '-0.02em', color: 'var(--ink)',
+          }}>
             {userName ? `Welcome back, ${userName.split(' ')[0]}` : 'My bookings'}
           </h1>
-          <p style={{ margin: 0, fontSize: 14, color: '#6b7280' }}>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>
             {bookings.length > 0
               ? `You have ${bookings.length} booking${bookings.length > 1 ? 's' : ''}`
               : 'Your bookings will appear here once you reserve your place.'}
           </p>
         </div>
 
-        {/* Summary strip — only if there are bookings */}
+        {/* Stats strip — only when bookings exist */}
         {bookings.length > 0 && (
           <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
             gap: 12, marginBottom: 28,
           }}>
-            {[
-              {
-                label: 'Total paid',
-                value: fmt(bookings.reduce((s, b) => s + b.paidAmount, 0)),
-                color: '#065f46', bg: '#d1fae5',
-              },
-              {
-                label: 'Outstanding',
-                value: fmt(bookings.reduce((s, b) => s + Math.max(0, b.totalAmount - b.paidAmount), 0)),
-                color: '#92400e', bg: '#fef3c7',
-              },
-              {
-                label: 'Booking value',
-                value: fmt(bookings.reduce((s, b) => s + b.totalAmount, 0)),
-                color: '#1a2744', bg: '#f9f7f0',
-              },
-            ].map(stat => (
-              <div key={stat.label} style={{
-                background: stat.bg, borderRadius: 10, padding: '14px 16px',
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: stat.color, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                  {stat.label}
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: stat.color, fontVariantNumeric: 'tabular-nums' }}>
-                  {stat.value}
-                </div>
-              </div>
-            ))}
+            <StatTile label="Total paid"    value={fmt(totalPaid)}        soft="success-soft" />
+            <StatTile label="Outstanding"   value={fmt(totalOutstanding)} soft="warning-soft" />
+            <StatTile label="Booking value" value={fmt(totalValue)}       soft="surface-2"    />
           </div>
         )}
 
@@ -291,11 +317,12 @@ export function DashboardView({ bookings, userName }: Props) {
         {bookings.length === 0 ? (
           <EmptyState />
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {bookings.map(b => <BookingCard key={b.id} b={b} />)}
           </div>
         )}
-      </div>
+
+      </main>
     </div>
   )
 }
