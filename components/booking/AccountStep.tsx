@@ -103,10 +103,9 @@ function PhoneInput({
   }, [])
 
   const searchLower = search.toLowerCase()
-  const pinnedFiltered = PINNED_COUNTRIES.filter(
-    c => c.name.toLowerCase().includes(searchLower) || c.dial.includes(search)
-  )
-  const allFiltered = ALL_COUNTRIES.filter(
+  const allCountries = [...PINNED_COUNTRIES, ...ALL_COUNTRIES]
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const allFiltered = allCountries.filter(
     c => c.name.toLowerCase().includes(searchLower) || c.dial.includes(search)
   )
 
@@ -187,22 +186,11 @@ function PhoneInput({
 
           {/* List */}
           <div style={{ overflowY: 'auto', flex: 1 }}>
-            {pinnedFiltered.length > 0 && (
-              <>
-                {pinnedFiltered.map(c => (
-                  <CountryOption key={c.code} country={c} selected={c.dial === dialCode}
-                    onClick={() => { onDialCode(c.dial); setOpen(false); setSearch('') }} />
-                ))}
-                {allFiltered.length > 0 && (
-                  <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
-                )}
-              </>
-            )}
             {allFiltered.map(c => (
               <CountryOption key={c.code} country={c} selected={c.dial === dialCode}
                 onClick={() => { onDialCode(c.dial); setOpen(false); setSearch('') }} />
             ))}
-            {pinnedFiltered.length === 0 && allFiltered.length === 0 && (
+            {allFiltered.length === 0 && (
               <div style={{ padding: '14px 12px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
                 No results
               </div>
