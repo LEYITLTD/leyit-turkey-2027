@@ -11,10 +11,12 @@ export function generateMetadata() {
 }
 
 interface Props {
-  params: { ref: string }
+  params: Promise<{ ref: string }>
 }
 
 export default async function BookingDetailPage({ params }: Props) {
+  const { ref } = await params
+
   const cookieStore = await cookies()
   const token = await getToken({
     req:    { cookies: Object.fromEntries(cookieStore.getAll().map(c => [c.name, c.value])) } as any,
@@ -22,7 +24,7 @@ export default async function BookingDetailPage({ params }: Props) {
   })
   if (!token?.sub) redirect('/auth/signin')
 
-  const booking = await getBookingDetail(params.ref)
+  const booking = await getBookingDetail(ref)
   if (!booking) redirect('/dashboard')
 
   return <BookingDetailView booking={booking} />
