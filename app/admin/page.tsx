@@ -1,16 +1,28 @@
-import { getSession } from '@/lib/auth'
 import { redirect } from 'next/navigation'
+import { getToken } from 'next-auth/jwt'
+import { cookies } from 'next/headers'
+import { getAdminData } from '@/app/actions/get-admin-data'
+import { AdminView } from '@/components/admin/AdminView'
+
+export const dynamic = 'force-dynamic'
+
+export function generateMetadata() {
+  return { title: 'Admin — Light Upon Light Turkey Retreat 2027' }
+}
 
 export default async function AdminPage() {
-  const session = await getSession()
+  const cookieStore = await cookies()
+  const token = await getToken({
+    req:    { cookies: Object.fromEntries(cookieStore.getAll().map(c => [c.name, c.value])) } as any,
+    secret: process.env.NEXTAUTH_SECRET ?? '',
+  })
 
-  if (!session) redirect('/login')
-  if (session.user.role === 'CUSTOMER') redirect('/my-booking')
+  // Must be signed in with ADMIN or BOTH role
+  if (!token?.sub) redirect('/auth/signin')
+  const role = token.role as string | undefined
+  if (role !== 'ADMIN' && role !== 'BOTH') redirect('/dashboard')
 
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: 8 }}>
-      <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--ink)' }}>Admin dashboard</p>
-      <p style={{ fontSize: 13, color: 'var(--muted)' }}>Coming in Phase 3 — foundation is ready.</p>
-    </div>
-  )
+  const data = await getAdminData()
+
+  return <AdminView data={data} />
 }
