@@ -1,12 +1,16 @@
 'use client'
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { signIn, useSession } from 'next-auth/react'
 import { createAccount } from '@/app/actions/auth'
 import { useBookingFlow } from '@/lib/booking-flow'
+import { PINNED_COUNTRIES, ALL_COUNTRIES } from '@/lib/country-codes'
+import type { Country } from '@/lib/country-codes'
 
 type Mode = 'create' | 'signin'
+
+const DEFAULT_COUNTRY = PINNED_COUNTRIES[0] // 🇬🇧 +44
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -69,6 +73,168 @@ function PasswordInput({
   )
 }
 
+// ─── Phone input with country code picker ────────────────────────────────────
+
+function PhoneInput({
+  dialCode, number, onDialCode, onNumber, error,
+}: {
+  dialCode:   string
+  number:     string
+  onDialCode: (d: string) => void
+  onNumber:   (n: string) => void
+  error?:     string
+}) {
+  const [open,   setOpen]   = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  const selected = [...PINNED_COUNTRIES, ...ALL_COUNTRIES].find(c => c.dial === dialCode) ?? DEFAULT_COUNTRY
+
+  // Close on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+        setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const searchLower = search.toLowerCase()
+  const pinnedFiltered = PINNED_COUNTRIES.filter(
+    c => c.name.toLowerCase().includes(searchLower) || c.dial.includes(search)
+  )
+  const allFiltered = ALL_COUNTRIES.filter(
+    c => c.name.toLowerCase().includes(searchLower) || c.dial.includes(search)
+  )
+
+  const borderColour = error ? 'var(--danger)' : open ? 'var(--gold-deep)' : 'var(--line-2)'
+  const shadow = open ? '0 0 0 3px rgba(201,169,97,0.12)' : 'none'
+
+  return (
+    <div ref={ref}>
+      <div style={{
+        display: 'flex', border: `1px solid ${borderColour}`,
+        borderRadius: 'var(--radius-sm)', background: 'var(--surface)',
+        boxShadow: shadow, transition: 'border-color 120ms, box-shadow 120ms',
+        overflow: 'hidden',
+      }}>
+        {/* Dial code button */}
+        <button
+          type="button"
+          onClick={() => { setOpen(v => !v); setSearch('') }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '0 10px', background: 'var(--surface-2)',
+            border: 'none', borderRight: `1px solid ${borderColour}`,
+            cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+            color: 'var(--ink)', whiteSpace: 'nowrap', flexShrink: 0,
+            transition: 'border-color 120ms',
+          }}
+        >
+          <span style={{ fontSize: 16 }}>{selected.flag}</span>
+          <span style={{ fontWeight: 500 }}>{selected.dial}</span>
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ opacity: 0.5, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms' }}>
+            <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+
+        {/* Number field */}
+        <input
+          type="tel"
+          value={number}
+          onChange={e => onNumber(e.target.value)}
+          placeholder="7700 000000"
+          style={{
+            flex: 1, border: 'none', outline: 'none',
+            padding: '10px 12px', fontSize: 13,
+            background: 'transparent', color: 'var(--ink)',
+            fontFamily: 'inherit',
+          }}
+        />
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{
+          position: 'absolute', zIndex: 50,
+          background: 'var(--surface)',
+          border: '1px solid var(--line-2)',
+          borderRadius: 'var(--radius)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.10)',
+          width: 300, maxHeight: 320,
+          display: 'flex', flexDirection: 'column',
+          marginTop: 4, overflow: 'hidden',
+        }}>
+          {/* Search */}
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
+            <input
+              autoFocus
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search country…"
+              style={{
+                width: '100%', border: '1px solid var(--line-2)',
+                borderRadius: 'var(--radius-sm)', padding: '6px 10px',
+                fontSize: 12.5, outline: 'none', fontFamily: 'inherit',
+                background: 'var(--surface-2)',
+              }}
+            />
+          </div>
+
+          {/* List */}
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {pinnedFiltered.length > 0 && (
+              <>
+                {pinnedFiltered.map(c => (
+                  <CountryOption key={c.code} country={c} selected={c.dial === dialCode}
+                    onClick={() => { onDialCode(c.dial); setOpen(false); setSearch('') }} />
+                ))}
+                {allFiltered.length > 0 && (
+                  <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
+                )}
+              </>
+            )}
+            {allFiltered.map(c => (
+              <CountryOption key={c.code} country={c} selected={c.dial === dialCode}
+                onClick={() => { onDialCode(c.dial); setOpen(false); setSearch('') }} />
+            ))}
+            {pinnedFiltered.length === 0 && allFiltered.length === 0 && (
+              <div style={{ padding: '14px 12px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
+                No results
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--danger)' }}>{error}</p>}
+    </div>
+  )
+}
+
+function CountryOption({ country, selected, onClick }: { country: Country; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        width: '100%', padding: '8px 12px', border: 'none',
+        background: selected ? 'var(--gold-soft)' : 'transparent',
+        cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+      }}
+    >
+      <span style={{ fontSize: 18, lineHeight: 1 }}>{country.flag}</span>
+      <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{country.name}</span>
+      <span style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{country.dial}</span>
+    </button>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function AccountStep() {
@@ -82,7 +248,8 @@ export function AccountStep() {
   // Form state
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
-  const [phone,    setPhone]    = useState('')
+  const [dialCode, setDialCode] = useState(DEFAULT_COUNTRY.dial)
+  const [phoneNum, setPhoneNum] = useState('')
   const [error,    setError]    = useState<string | null>(null)
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({})
 
@@ -106,7 +273,7 @@ export function AccountStep() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))  errs.email    = 'Enter a valid email address.'
     if (!password)                                        errs.password = 'Password is required.'
     else if (mode === 'create' && password.length < 8)    errs.password = 'Password must be at least 8 characters.'
-    if (mode === 'create' && !phone.trim())               errs.phone    = 'Phone number is required.'
+    if (mode === 'create' && !phoneNum.trim())             errs.phone    = 'Phone number is required.'
     setFieldErr(errs)
     return Object.keys(errs).length === 0
   }
@@ -118,7 +285,8 @@ export function AccountStep() {
 
     startTransition(async () => {
       const result = await createAccount({
-        email, password, phone,
+        email, password,
+        phone: `${dialCode} ${phoneNum.trim()}`,
         name: leadName || email,
       })
 
@@ -233,18 +401,15 @@ export function AccountStep() {
 
           {/* Phone — create mode only */}
           {mode === 'create' && (
-            <div>
+            <div style={{ position: 'relative' }}>
               <Label>Phone number</Label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={e => { setPhone(e.target.value); setFieldErr(p => ({ ...p, phone: '' })) }}
-                placeholder="+44 7700 000000"
-                autoComplete="tel"
-                className="input"
-                style={{ borderColor: fieldErr.phone ? 'var(--danger)' : undefined }}
+              <PhoneInput
+                dialCode={dialCode}
+                number={phoneNum}
+                onDialCode={d => { setDialCode(d); setFieldErr(p => ({ ...p, phone: '' })) }}
+                onNumber={n => { setPhoneNum(n); setFieldErr(p => ({ ...p, phone: '' })) }}
+                error={fieldErr.phone}
               />
-              <FieldError msg={fieldErr.phone} />
             </div>
           )}
 
