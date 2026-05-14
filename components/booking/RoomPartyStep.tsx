@@ -349,7 +349,7 @@ export function RoomPartyStep({ rooms }: Props) {
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 8,
+              gap: 16,
               marginBottom: 4,
             }}>
               {filtered.map(room => (
