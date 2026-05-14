@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  BOTH
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  phone         String?
+  role          Role      @default(CUSTOMER)
+  adminRole     String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  bookings      Booking[]
+
+  @@map("users")
+}
+
+// ─── Bookings ────────────────────────────────────────────────────────────────
+
+enum BookingStatus {
+  DEPOSIT_ONLY
+  PARTIALLY_PAID
+  FULLY_PAID
+  FAILED
+  CANCELLED
+}
+
+enum PaymentPlan {
+  FULL
+  INSTALMENT
+}
+
+model Booking {
+  id           String        @id @default(cuid())
+  ref          String        @unique
+  userId       String
+  roomTypeId   String
+  roomView     String
+  adults       Int
+  children     Int
+  totalAmount  Int
+  paidAmount   Int           @default(0)
+  status       BookingStatus @default(DEPOSIT_ONLY)
+  plan         PaymentPlan
+  tier         String
+  discountCode String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user                User                 @relation(fields: [userId], references: [id])
+  occupants           Occupant[]
+  payments            Payment[]
+  instalmentSchedules InstalmentSchedule[]
+  auditLogs           AuditLog[]
+
+  @@map("bookings")
+}
+
+model Occupant {
+  id        String   @id @default(cuid())
+  bookingId String
+  name      String
+  dob       DateTime
+  gender    String
+  role      String
+  createdAt DateTime @default(now())
+
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("occupants")
+}
+
+// ─── Payments ────────────────────────────────────────────────────────────────
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  AUTHORISED
+  CAPTURED
+  SETTLED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+  CANCELLED
+}
+
+model Payment {
+  id                    String        @id @default(cuid())
+  bookingId             String
+  stripePaymentIntentId String?       @unique
+  stripeChargeId        String?
+  amount                Int
+  refundedAmount        Int           @default(0)
+  currency              String        @default("gbp")
+  status                PaymentStatus @default(CREATED)
+  idempotencyKey        String        @unique
+  description           String?
+  failureReason         String?
+  isOffPlatform         Boolean       @default(false)
+  offPlatformRef        String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  booking   Booking    @relation(fields: [bookingId], references: [id])
+  auditLogs AuditLog[]
+
+  @@map("payments")
+}
+
+model InstalmentSchedule {
+  id             String    @id @default(cuid())
+  bookingId      String
+  number         Int
+  label          String
+  amount         Int
+  dueDate        DateTime
+  status         String    @default("scheduled")
+  paidAt         DateTime?
+  idempotencyKey String    @unique
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("instalment_schedules")
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  bookingId     String?
+  paymentId     String?
+  action        String
+  actor         String
+  previousState Json?
+  newState      Json?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  booking   Booking?  @relation(fields: [bookingId], references: [id])
+  payment   Payment?  @relation(fields: [paymentId], references: [id])
+
+  @@map("audit_log")
+}
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+model RoomType {
+  id         String   @id @default(cuid())
+  name       String
+  view       String
+  capacity   String
+  size       String?
+  features   String[]
+  rateGbp    Int
+  totalRooms Int
+  soldRooms  Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("room_types")
+}
+
+model DiscountCode {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  description     String?
+  discountPercent Int
+  isActive        Boolean   @default(true)
+  usageCount      Int       @default(0)
+  maxUsage        Int?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@map("discount_codes")
+}
+
+model ProcessedWebhook {
+  id            String   @id @default(cuid())
+  stripeEventId String   @unique
+  processedAt   DateTime @default(now())
+
+  @@map("processed_webhooks")
+}
