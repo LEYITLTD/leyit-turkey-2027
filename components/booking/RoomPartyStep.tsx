@@ -333,7 +333,7 @@ export function RoomPartyStep({ rooms }: Props) {
 
       {/* ── Phase 2: Room grid (only shown after party locked) ── */}
       {partyLocked && (
-        <div>
+        <div style={{ maxWidth: 860, marginLeft: 'auto', marginRight: 'auto' }}>
           <h2 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 600, letterSpacing: '-0.01em' }}>
             {filtered.length > 0
               ? `${filtered.length} room${filtered.length !== 1 ? 's' : ''} available for your group`
@@ -349,7 +349,7 @@ export function RoomPartyStep({ rooms }: Props) {
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 16,
+              gap: 24,
               marginBottom: 4,
             }}>
               {filtered.map(room => (
