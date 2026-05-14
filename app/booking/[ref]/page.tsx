@@ -6,8 +6,9 @@ import { BookingDetailView } from '@/components/booking-detail/BookingDetailView
 
 export const dynamic = 'force-dynamic'
 
-export function generateMetadata() {
-  return { title: 'My Booking — Light Upon Light Turkey Retreat 2027' }
+export async function generateMetadata({ params }: Props) {
+  const { ref } = await params
+  return { title: `Booking ${ref} — Light Upon Light Turkey Retreat 2027` }
 }
 
 interface Props {
