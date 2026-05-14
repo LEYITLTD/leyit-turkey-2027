@@ -143,6 +143,10 @@ export async function initiatePayment(input: InitiatePaymentInput) {
         instalmentNumber: '1',
         plan:             input.plan,
 
+        // ── Customer ──────────────────────────────────────────────────────────
+        customer_name:  input.occupants.find(o => o.role === 'Lead')?.name ?? '',
+        customer_email: userEmail,
+
         // ── Party ─────────────────────────────────────────────────────────────
         adults:    String(input.adults),
         infants:   String(input.infants),
