@@ -120,22 +120,17 @@ function RoomCard({ room, selected, price, onSelect }: {
         ))}
       </div>
 
-      {/* Price */}
-      <div style={{
-        borderTop: '1px solid var(--line)', paddingTop: 9,
-        display: 'flex', alignItems: 'baseline', gap: 4,
-      }}>
-        {price ? (
-          <>
-            <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: selected ? 'var(--gold-deep)' : 'var(--ink)' }}>
-              {formatGBP(price.total)}
-            </span>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>total · {price.nights} nights</span>
-          </>
-        ) : (
-          <span style={{ fontSize: 12, color: 'var(--muted-2)' }}>Calculating…</span>
-        )}
-      </div>
+      {/* Price ready indicator — subtle, no number shown until selected */}
+      {!selected && price && (
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: 2 }}>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Tap to see price</span>
+        </div>
+      )}
+      {!selected && !price && (
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8, marginTop: 2 }}>
+          <span style={{ fontSize: 11, color: 'var(--muted-2)' }}>Loading…</span>
+        </div>
+      )}
     </button>
   )
 }
@@ -406,7 +401,7 @@ export function RoomPartyStep({ rooms }: Props) {
                   Loading prices…
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 24 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', columnGap: '24px', rowGap: '24px' }}>
                 {filtered.map(room => (
                   <RoomCard
                     key={room.id}
