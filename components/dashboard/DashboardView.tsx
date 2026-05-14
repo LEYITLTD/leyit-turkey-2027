@@ -186,7 +186,7 @@ function BookingCard({ b }: { b: MyBooking }) {
 
         {/* Action */}
         <div>
-          <Link href={`/book/confirmation/${b.ref}`} className="btn btn-primary btn-sm">
+          <Link href={`/booking/${b.ref}`} className="btn btn-primary btn-sm">
             View booking
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" strokeWidth="2.5">
