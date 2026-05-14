@@ -122,6 +122,14 @@ interface Props {
 }
 
 export function PaymentForm({ clientSecret, bookingRef, amountLabel }: Props) {
+  if (!stripePromise) {
+    return (
+      <div style={{ padding: '20px 0', textAlign: 'center', color: '#6b7280', fontSize: 14 }}>
+        Payment system is not configured yet. Please contact us to complete your booking.
+      </div>
+    )
+  }
+
   const options = {
     clientSecret,
     appearance: {

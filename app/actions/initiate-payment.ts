@@ -122,12 +122,15 @@ export async function initiatePayment(input: InitiatePaymentInput) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount:   amountNow,
       currency: 'gbp',
+      // Required for PaymentElement to dynamically show all payment methods
+      // configured in the Stripe Dashboard (cards, Apple Pay, Google Pay, etc.)
+      automatic_payment_methods: { enabled: true },
       description: input.plan === 'FULL'
         ? 'Light Upon Light Turkey Retreat 2027 — Full payment'
         : 'Light Upon Light Turkey Retreat 2027 — Deposit (25%)',
       metadata: {
-        bookingId:       booking.id,
-        bookingRef:      ref,
+        bookingId:        booking.id,
+        bookingRef:       ref,
         instalmentNumber: '1',
       },
     })
