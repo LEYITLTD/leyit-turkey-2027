@@ -6,13 +6,14 @@ import { useSession } from 'next-auth/react'
 import { useBookingFlow } from '@/lib/booking-flow'
 import { buildInstalmentSchedule, formatGBP } from '@/lib/pricing'
 import { validateDiscountCode } from '@/app/actions/booking-data'
-import { createBooking } from '@/app/actions/create-booking'
+import { initiatePayment } from '@/app/actions/initiate-payment'
+import { PaymentForm } from '@/components/booking/PaymentForm'
 import type { RoomTypeData } from '@/app/actions/booking-data'
 import type { InstalmentSlot } from '@/lib/pricing'
 
 interface Props { rooms: RoomTypeData[] }
 
-// ─── Instalment schedule display ──────────────────────────────────────────────
+// ─── Instalment schedule ──────────────────────────────────────────────────────
 
 function ScheduleTable({ schedule }: { schedule: InstalmentSlot[] }) {
   const fmt = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -46,19 +47,13 @@ function ScheduleTable({ schedule }: { schedule: InstalmentSlot[] }) {
                   {isFirst ? '✓' : s.number}
                 </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: isFirst ? 600 : 400, color: 'var(--ink)' }}>
-                    {s.label}
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: isFirst ? 600 : 400, color: 'var(--ink)' }}>{s.label}</div>
                   <div style={{ fontSize: 11.5, color: isFirst ? 'var(--gold-deep)' : 'var(--muted)', marginTop: 1 }}>
                     {isFirst ? 'Paid today' : `Due ${fmt(s.dueDate)}`}
                   </div>
                 </div>
               </div>
-              <span style={{
-                fontSize: 14, fontWeight: 600,
-                fontVariantNumeric: 'tabular-nums',
-                color: isFirst ? 'var(--gold-deep)' : 'var(--ink)',
-              }}>
+              <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: isFirst ? 'var(--gold-deep)' : 'var(--ink)' }}>
                 {formatGBP(s.amount)}
               </span>
             </div>
@@ -78,14 +73,10 @@ function ScheduleTable({ schedule }: { schedule: InstalmentSlot[] }) {
   )
 }
 
-// ─── Plan selector card ───────────────────────────────────────────────────────
+// ─── Plan card ────────────────────────────────────────────────────────────────
 
-function PlanCard({
-  selected, plan, title, sub, amount, onClick,
-}: {
-  selected: boolean; plan: 'FULL' | 'INSTALMENT'
-  title: string; sub: string; amount: string
-  onClick: () => void
+function PlanCard({ selected, title, sub, amount, onClick }: {
+  selected: boolean; title: string; sub: string; amount: string; onClick: () => void
 }) {
   return (
     <button type="button" onClick={onClick} style={{
@@ -97,7 +88,6 @@ function PlanCard({
       boxShadow: selected ? '0 0 0 3px rgba(168,138,71,0.1)' : 'none',
       transition: 'all 140ms', textAlign: 'left', position: 'relative',
     }}>
-      {/* Radio indicator */}
       <div style={{
         position: 'absolute', top: 14, right: 14,
         width: 18, height: 18, borderRadius: '50%',
@@ -107,10 +97,7 @@ function PlanCard({
       }}>
         {selected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
       </div>
-
-      <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 3, paddingRight: 24 }}>
-        {title}
-      </div>
+      <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 3, paddingRight: 24 }}>{title}</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{sub}</div>
       <div style={{ fontSize: 16, fontWeight: 700, color: selected ? 'var(--gold-deep)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
         {amount}
@@ -127,12 +114,16 @@ export function ReviewStep({ rooms }: Props) {
   const { draft, setDraft, reset } = useBookingFlow()
   const [isPending, startTransition] = useTransition()
 
-  const [plan,      setPlan]      = useState<'FULL' | 'INSTALMENT'>(draft.plan ?? 'FULL')
-  const [codeInput, setCodeInput] = useState(draft.discountCode ?? '')
-  const [codeMsg,   setCodeMsg]   = useState<{ ok: boolean; text: string } | null>(null)
+  const [plan,        setPlan]        = useState<'FULL' | 'INSTALMENT'>(draft.plan ?? 'FULL')
+  const [codeInput,   setCodeInput]   = useState(draft.discountCode ?? '')
+  const [codeMsg,     setCodeMsg]     = useState<{ ok: boolean; text: string } | null>(null)
   const [discountAmt, setDiscountAmt] = useState(draft.discountAmt)
   const [applyingCode, startCodeTransition] = useTransition()
-  const [error,     setError]     = useState<string | null>(null)
+  const [error,       setError]       = useState<string | null>(null)
+
+  // Payment state — set after initiatePayment succeeds
+  const [clientSecret, setClientSecret] = useState<string | null>(null)
+  const [bookingRef,   setBookingRef]   = useState<string | null>(null)
 
   // Guards
   useEffect(() => {
@@ -142,20 +133,22 @@ export function ReviewStep({ rooms }: Props) {
   }, [status, draft.roomTypeId, draft.occupants.length, router])
 
   if (status === 'loading' || !draft.roomTypeId || !draft.priceBreakdown) {
-    return <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
-      <span className="auth-spin" style={{ width: 20, height: 20, borderTopColor: 'var(--gold-deep)', borderColor: 'var(--line-2)' }} />
-    </div>
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '60px 0' }}>
+        <span className="auth-spin" style={{ width: 20, height: 20, borderTopColor: 'var(--gold-deep)', borderColor: 'var(--line-2)' }} />
+      </div>
+    )
   }
 
-  const room           = rooms.find(r => r.id === draft.roomTypeId)
-  const bd             = draft.priceBreakdown
-  const extraNights    = draft.extraNightsBefore + draft.extraNightsAfter
-  const extraCost      = extraNights * bd.ratePerExtraNight
-  const grandTotal     = bd.total + extraCost - discountAmt
-  const schedule       = buildInstalmentSchedule(grandTotal, plan)
-  const amountToday    = plan === 'FULL' ? grandTotal : schedule[0].amount
+  const room        = rooms.find(r => r.id === draft.roomTypeId)
+  const bd          = draft.priceBreakdown
+  const extraNights = draft.extraNightsBefore + draft.extraNightsAfter
+  const extraCost   = extraNights * bd.ratePerExtraNight
+  const grandTotal  = bd.total + extraCost - discountAmt
+  const schedule    = buildInstalmentSchedule(grandTotal, plan)
+  const amountToday = plan === 'FULL' ? grandTotal : schedule[0].amount
 
-  // ── Discount code ────────────────────────────────────────────────────────────
+  // ── Discount code ──────────────────────────────────────────────────────────────
   function handleApplyCode() {
     if (!codeInput.trim()) return
     setCodeMsg(null)
@@ -178,12 +171,12 @@ export function ReviewStep({ rooms }: Props) {
     })
   }
 
-  // ── Pay ──────────────────────────────────────────────────────────────────────
-  function handlePay() {
+  // ── Initiate payment ─────────────────────────────────────────────────────────
+  function handleInitiatePayment() {
     setError(null)
     setDraft({ plan })
     startTransition(async () => {
-      const result = await createBooking({
+      const result = await initiatePayment({
         roomTypeId:        draft.roomTypeId!,
         adults:            draft.adults,
         infants:           draft.infants,
@@ -201,19 +194,64 @@ export function ReviewStep({ rooms }: Props) {
 
       if (!result.ok) { setError(result.error); return }
 
-      reset() // Clear draft after booking created
+      reset() // clear draft — booking is now in DB
 
-      if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl   // Stripe hosted checkout
-      } else {
-        router.push(`/book/confirmation/${result.ref}`)  // No Stripe yet
+      if (!result.clientSecret) {
+        // Stripe not configured yet — go straight to confirmation
+        router.push(`/book/confirmation/${result.ref}`)
+        return
       }
+
+      // Show the embedded payment form
+      setClientSecret(result.clientSecret)
+      setBookingRef(result.ref)
     })
   }
 
+  // ── Payment form is showing ───────────────────────────────────────────────────
+  if (clientSecret && bookingRef) {
+    return (
+      <div>
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gold-deep)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+            Step 4 of 4
+          </div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>
+            Payment details
+          </h1>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--muted)' }}>
+            Booking ref <strong>{bookingRef}</strong> · paying {formatGBP(amountToday)} {plan === 'INSTALMENT' ? '(deposit)' : 'in full'}
+          </p>
+        </div>
+
+        <div style={{ maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
+          <div className="card card-pad">
+            <PaymentForm
+              clientSecret={clientSecret}
+              bookingRef={bookingRef}
+              amountLabel={formatGBP(amountToday)}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => { setClientSecret(null); setBookingRef(null) }}
+            style={{
+              all: 'unset', boxSizing: 'border-box',
+              display: 'block', margin: '12px auto 0',
+              fontSize: 13, color: 'var(--muted)', cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            ← Back to order summary
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Order summary + plan selection ────────────────────────────────────────────
   return (
     <div>
-      {/* Heading */}
       <div style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gold-deep)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
           Step 4 of 4
@@ -230,30 +268,30 @@ export function ReviewStep({ rooms }: Props) {
 
         {/* ── Order summary ── */}
         <div className="card" style={{ overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: 'var(--surface-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Order summary</div>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: 'var(--surface-2)' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              Order summary
+            </div>
           </div>
           <div style={{ padding: '12px 16px 4px' }}>
-            {/* Room + party */}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{room?.displayName ?? draft.roomTypeId}</div>
               <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                 {[
                   `${draft.adults} adult${draft.adults !== 1 ? 's' : ''}`,
-                  draft.infants  ? `${draft.infants} infant${draft.infants > 1 ? 's' : ''}`          : null,
-                  draft.child46  ? `${draft.child46} child${draft.child46 > 1 ? 'ren' : ''} (4–6)`   : null,
+                  draft.infants  ? `${draft.infants} infant${draft.infants > 1 ? 's' : ''}`           : null,
+                  draft.child46  ? `${draft.child46} child${draft.child46 > 1 ? 'ren' : ''} (4–6)`    : null,
                   draft.child711 ? `${draft.child711} child${draft.child711 > 1 ? 'ren' : ''} (7–11)` : null,
                 ].filter(Boolean).join(' · ')}
                 {' · '}{bd.nights + extraNights} night{bd.nights + extraNights !== 1 ? 's' : ''} total
               </div>
             </div>
 
-            {/* Price lines */}
             {[
-              { label: `Retreat (${bd.nights} nights)`,                          amount: bd.total },
+              { label: `Retreat (${bd.nights} nights)`,                                              amount: bd.total },
               ...(extraNights > 0 ? [{ label: `Extra nights (${extraNights} × ${formatGBP(bd.ratePerExtraNight)})`, amount: extraCost }] : []),
-              ...(bd.bundleDiscount < 0 ? [{ label: 'Bundle discount (20%)',      amount: bd.bundleDiscount }] : []),
-              ...(discountAmt > 0       ? [{ label: `Discount code (${draft.discountCode})`, amount: -discountAmt }] : []),
+              ...(bd.bundleDiscount < 0 ? [{ label: 'Bundle discount (20%)',                          amount: bd.bundleDiscount }] : []),
+              ...(discountAmt > 0       ? [{ label: `Discount code (${draft.discountCode})`,           amount: -discountAmt }] : []),
             ].map((line, i, arr) => (
               <div key={i} style={{
                 display: 'flex', justifyContent: 'space-between',
@@ -281,7 +319,9 @@ export function ReviewStep({ rooms }: Props) {
 
         {/* ── Discount code ── */}
         <div className="card card-pad">
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Discount code <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
+            Discount code <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               type="text"
@@ -309,7 +349,6 @@ export function ReviewStep({ rooms }: Props) {
           <div style={{ display: 'flex', gap: 12 }}>
             <PlanCard
               selected={plan === 'FULL'}
-              plan="FULL"
               title="Pay in full"
               sub="One payment, nothing more to do"
               amount={formatGBP(grandTotal)}
@@ -317,21 +356,18 @@ export function ReviewStep({ rooms }: Props) {
             />
             <PlanCard
               selected={plan === 'INSTALMENT'}
-              plan="INSTALMENT"
               title="Pay in instalments"
               sub="Deposit today, 3 monthly payments"
               amount={`${formatGBP(schedule[0].amount)} today`}
               onClick={() => setPlan('INSTALMENT')}
             />
           </div>
-
-          {/* Instalment schedule */}
           {plan === 'INSTALMENT' && <ScheduleTable schedule={schedule} />}
         </div>
 
         {/* ── Error ── */}
         {error && (
-          <div style={{ padding: '10px 14px', borderRadius: 'var(--radius-sm)', background: 'var(--danger-soft)', fontSize: 13, color: 'var(--danger)' }}>
+          <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--danger-soft)', fontSize: 13, color: 'var(--danger)' }}>
             {error}
           </div>
         )}
@@ -339,13 +375,13 @@ export function ReviewStep({ rooms }: Props) {
         {/* ── Pay button ── */}
         <button
           type="button"
-          onClick={handlePay}
+          onClick={handleInitiatePayment}
           disabled={isPending}
           className="btn btn-primary btn-lg"
           style={{ width: '100%', justifyContent: 'center', gap: 8 }}
         >
           {isPending ? (
-            <><span className="auth-spin" />Processing…</>
+            <><span className="auth-spin" />Preparing payment…</>
           ) : (
             <>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -357,7 +393,7 @@ export function ReviewStep({ rooms }: Props) {
         </button>
 
         <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.5 }}>
-          Payments are processed securely by Stripe. We never store your card details.
+          🔒 Payments are processed securely by Stripe. We never store your card details.
         </p>
 
       </div>
