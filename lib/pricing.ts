@@ -309,9 +309,22 @@ export function buildInstalmentSchedule(
   const instalment     = Math.floor(remaining / 3)
   const lastInstalment = remaining - instalment * 2
 
-  const addMonths = (date: Date, months: number): Date => {
-    const d = new Date(date)
-    d.setMonth(d.getMonth() + months)
+  // INSTALMENT_INTERVAL_DAYS controls the gap between instalments.
+  //   Unset (or 0) → calendar months, e.g. May 15 → Jun 15 → Jul 15  (production)
+  //   1            → 1 day apart                                       (testing)
+  //   Any other N  → N days apart
+  //
+  // The cron job always respects the stored dueDate — this is the single place
+  // that controls timing. Switching to production is a one-line env change.
+  const intervalDays = parseInt(process.env.INSTALMENT_INTERVAL_DAYS ?? '0', 10)
+
+  function addInterval(base: Date, n: number): Date {
+    const d = new Date(base)
+    if (intervalDays > 0) {
+      d.setDate(d.getDate() + intervalDays * n)
+    } else {
+      d.setMonth(d.getMonth() + n) // calendar months
+    }
     return d
   }
 
@@ -326,19 +339,19 @@ export function buildInstalmentSchedule(
       number:  2,
       label:   'Instalment 2 of 4',
       amount:  instalment,
-      dueDate: addMonths(bookedAt, 1),
+      dueDate: addInterval(bookedAt, 1),
     },
     {
       number:  3,
       label:   'Instalment 3 of 4',
       amount:  instalment,
-      dueDate: addMonths(bookedAt, 2),
+      dueDate: addInterval(bookedAt, 2),
     },
     {
       number:  4,
       label:   'Final instalment',
       amount:  lastInstalment,
-      dueDate: addMonths(bookedAt, 3),
+      dueDate: addInterval(bookedAt, 3),
     },
   ]
 }
