@@ -21,35 +21,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  // ── payment_intent.succeeded ─────────────────────────────────────────────────
+  // ── Idempotency — skip events we've already processed ────────────────────────
+  const alreadyProcessed = await prisma.processedWebhook.findUnique({
+    where: { stripeEventId: event.id },
+  })
+  if (alreadyProcessed) {
+    return NextResponse.json({ received: true, skipped: 'duplicate' })
+  }
+
+  // ── payment_intent.succeeded ──────────────────────────────────────────────────
   if (event.type === 'payment_intent.succeeded') {
-    const pi           = event.data.object
-    const bookingId    = pi.metadata?.bookingId
-    const instalmentNo = Number(pi.metadata?.instalmentNumber ?? '1')
-    const amountPaid   = pi.amount_received   // actual funds captured
+    const pi        = event.data.object
+    const bookingId = pi.metadata?.bookingId
+    const rawInstNo = pi.metadata?.instalmentNumber   // '1', '2', '3', '4', or 'PAYOFF'
 
     if (!bookingId) {
-      // Test events from Stripe Dashboard have no metadata — not an error
-      console.log('Webhook: no bookingId in metadata, skipping (likely a test event)')
+      // Test events from the Stripe Dashboard have no metadata — not an error
+      await prisma.processedWebhook.create({ data: { stripeEventId: event.id } })
       return NextResponse.json({ received: true })
     }
 
-    // ── Idempotency guard ───────────────────────────────────────────────────────
-    // Stripe retries on failure. Check if we already processed this PaymentIntent
-    // to avoid double-counting on retries.
-    const existing = await prisma.payment.findUnique({
-      where: { stripePaymentIntentId: pi.id },
-    })
-    if (existing) {
-      console.log(`Webhook: PaymentIntent ${pi.id} already processed, skipping`)
-      return NextResponse.json({ received: true })
-    }
+    const amountPaid = pi.amount_received
 
-    // ── Process payment ─────────────────────────────────────────────────────────
     try {
       const booking = await prisma.booking.findUnique({
         where:   { id: bookingId },
-        include: { instalmentSchedules: { orderBy: { number: 'asc' } } },
+        include: {
+          instalmentSchedules: { orderBy: { number: 'asc' } },
+          user:                { select: { id: true } },
+        },
       })
 
       if (!booking) {
@@ -57,31 +57,52 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
       }
 
-      const newPaid = booking.paidAmount + amountPaid
+      const newPaid   = booking.paidAmount + amountPaid
+      const isPayoff  = rawInstNo === 'PAYOFF'
+      const instalmentNo = isPayoff ? null : Number(rawInstNo ?? '1')
 
-      // Derive status: fully paid, deposit only (1st instalment), or partially paid
       const isFullyPaid = newPaid >= booking.totalAmount
-      const newStatus = isFullyPaid
+      const newStatus   = isFullyPaid
         ? 'FULLY_PAID'
         : instalmentNo === 1
           ? 'DEPOSIT_ONLY'
           : 'PARTIALLY_PAID'
 
-      // ── All DB writes in a single transaction ─────────────────────────────────
+      // The payment method ID from this PI — save it for future off-session charges
+      const pmId = typeof pi.payment_method === 'string' ? pi.payment_method : null
+
       await prisma.$transaction(async (tx) => {
-        // 1. Update booking totals + status
+        // 1. Update booking: paid amount, status, and save PM if not already stored
         await tx.booking.update({
           where: { id: bookingId },
-          data:  { paidAmount: newPaid, status: newStatus as any },
+          data:  {
+            paidAmount: newPaid,
+            status:     newStatus as any,
+            // Only set on first payment — never overwrite once we have a saved card
+            ...(pmId && !booking.stripePaymentMethodId ? { stripePaymentMethodId: pmId } : {}),
+          },
         })
 
-        // 2. Mark instalment as paid
-        const instalment = booking.instalmentSchedules.find(s => s.number === instalmentNo)
-        if (instalment) {
-          await tx.instalmentSchedule.update({
-            where: { id: instalment.id },
-            data:  { status: 'paid', paidAt: new Date() },
+        // 2. Mark instalment(s) as paid
+        const now = new Date()
+        if (isPayoff) {
+          // Early full payoff — mark every remaining instalment as paid
+          await tx.instalmentSchedule.updateMany({
+            where: {
+              bookingId,
+              status: { in: ['scheduled', 'processing', 'action_required'] },
+            },
+            data: { status: 'paid', paidAt: now },
           })
+        } else {
+          // Normal single instalment
+          const instalment = booking.instalmentSchedules.find(s => s.number === instalmentNo)
+          if (instalment) {
+            await tx.instalmentSchedule.update({
+              where: { id: instalment.id },
+              data:  { status: 'paid', paidAt: now },
+            })
+          }
         }
 
         // 3. Record the payment
@@ -93,7 +114,9 @@ export async function POST(req: NextRequest) {
             currency:       pi.currency,
             status:         'CAPTURED',
             idempotencyKey: `${booking.ref}-pi-${pi.id}`,
-            description:    instalment?.label ?? 'Payment',
+            description:    isPayoff
+              ? 'Early full payoff'
+              : booking.instalmentSchedules.find(s => s.number === instalmentNo)?.label ?? 'Payment',
           },
         })
 
@@ -105,22 +128,29 @@ export async function POST(req: NextRequest) {
             actor:    'stripe-webhook',
             newState: {
               paymentIntentId: pi.id,
-              instalmentNo,
+              instalmentNo:    rawInstNo,
               amountPaid,
-              newPaidTotal: newPaid,
-              status: newStatus,
+              newPaidTotal:    newPaid,
+              status:          newStatus,
+              savedPM:         pmId ?? 'already_set',
             },
           },
         })
+
+        // 5. Mark this event as processed (idempotency)
+        await tx.processedWebhook.create({ data: { stripeEventId: event.id } })
       })
 
-      console.log(`Webhook: processed payment for booking ${booking.ref} — £${(amountPaid / 100).toFixed(2)} — status: ${newStatus}`)
+      console.log(
+        `Webhook: ${booking.ref} — ${isPayoff ? 'PAYOFF' : `instalment ${instalmentNo}`} ` +
+        `£${(amountPaid / 100).toFixed(2)} → ${newStatus}`
+      )
 
     } catch (err) {
       console.error('Webhook: DB error processing payment_intent.succeeded:', err)
       return NextResponse.json(
-        { error: 'Internal server error processing payment', detail: String(err) },
-        { status: 500 }
+        { error: 'Internal server error', detail: String(err) },
+        { status: 500 },
       )
     }
   }
