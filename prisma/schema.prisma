@@ -16,18 +16,19 @@ enum Role {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  password      String
-  name          String
-  phone         String?
-  role          Role      @default(CUSTOMER)
-  adminRole     String?
-  emailVerified DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String
+  name              String
+  phone             String?
+  role              Role      @default(CUSTOMER)
+  adminRole         String?
+  emailVerified     DateTime?
+  stripeCustomerId  String?   // Stripe Customer object — set on first payment
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  bookings      Booking[]
+  bookings          Booking[]
 
   @@map("users")
 }
@@ -67,6 +68,7 @@ model Booking {
   plan               PaymentPlan
   discountCode       String?
   discountAmt        Int           @default(0)     // pence — from discount code
+  stripePaymentMethodId String?       // saved card for off-session auto-charges
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -140,7 +142,7 @@ model InstalmentSchedule {
   label          String
   amount         Int       // pence
   dueDate        DateTime
-  status         String    @default("scheduled") // scheduled / paid / failed / cancelled
+  status         String    @default("scheduled") // scheduled / processing / paid / failed / action_required / cancelled
   paidAt         DateTime?
   idempotencyKey String    @unique               // booking_ref + instalment_number
   createdAt      DateTime  @default(now())
