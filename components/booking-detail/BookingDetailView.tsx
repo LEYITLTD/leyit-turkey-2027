@@ -1,7 +1,10 @@
 'use client'
 
+import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import type { BookingDetail } from '@/app/actions/get-booking-detail'
+import { createPayoffIntent } from '@/app/actions/create-payoff-intent'
+import { PaymentForm } from '@/components/booking/PaymentForm'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,6 +88,25 @@ export function BookingDetailView({ booking }: Props) {
   const pct          = booking.totalAmount > 0
     ? Math.min(100, Math.round((booking.paidAmount / booking.totalAmount) * 100))
     : 0
+
+  // ── Early payoff state ───────────────────────────────────────────────────────
+  const [payoffSecret,  setPayoffSecret]  = useState<string | null>(null)
+  const [payoffAmount,  setPayoffAmount]  = useState(0)
+  const [payoffError,   setPayoffError]   = useState<string | null>(null)
+  const [isPending,     startTransition]  = useTransition()
+
+  function handlePayoff() {
+    setPayoffError(null)
+    startTransition(async () => {
+      const result = await createPayoffIntent(booking.ref)
+      if (result.ok) {
+        setPayoffAmount(result.amountPence)
+        setPayoffSecret(result.clientSecret)
+      } else {
+        setPayoffError(result.error)
+      }
+    })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
@@ -280,6 +302,43 @@ export function BookingDetailView({ booking }: Props) {
                     <strong>{fmt(outstanding)}</strong>
                   </div>
                 )}
+
+              {/* ── Early payoff ── */}
+              {outstanding > 0 && isInstalment && !payoffSecret && (
+                <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
+                    Want to pay off your remaining balance now?
+                  </div>
+                  <button
+                    onClick={handlePayoff}
+                    disabled={isPending}
+                    className="btn btn-primary"
+                    style={{ fontSize: 13, width: '100%', justifyContent: 'center' }}
+                  >
+                    {isPending ? 'Preparing payment…' : `Pay remaining ${fmt(outstanding)}`}
+                  </button>
+                  {payoffError && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', background: 'var(--danger-soft)', color: 'var(--danger)', borderRadius: 'var(--radius-sm)', fontSize: 12.5 }}>
+                      {payoffError}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Payoff payment form ── */}
+              {payoffSecret && (
+                <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--gold-deep)', marginBottom: 14 }}>
+                    Pay remaining balance — {fmt(payoffAmount)}
+                  </div>
+                  <PaymentForm
+                    clientSecret={payoffSecret}
+                    bookingRef={booking.ref}
+                    amountLabel={fmt(payoffAmount)}
+                    onSuccess={() => window.location.reload()}
+                  />
+                </div>
+              )}
               </div>
 
               {/* Plan */}
@@ -340,7 +399,7 @@ export function BookingDetailView({ booking }: Props) {
                 })}
               </div>
               <div style={{ padding: '10px 20px', borderTop: '1px solid var(--line)', background: 'var(--surface-2)', fontSize: 11.5, color: 'var(--muted-2)' }}>
-                Remaining instalments are charged automatically on their due dates.
+                Your saved card is charged automatically on each due date. You can also pay off the full remaining balance early above.
               </div>
             </div>
           )}
