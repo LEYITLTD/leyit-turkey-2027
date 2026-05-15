@@ -127,9 +127,35 @@ export async function initiatePayment(input: InitiatePaymentInput) {
     new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(pence / 100)
 
   if (stripe) {
+    // ── Find or create a Stripe Customer for this user ───────────────────────
+    // The Customer is needed to vault the payment method for future
+    // off-session instalment charges.
+    const dbUser = await prisma.user.findUnique({
+      where:  { id: userId },
+      select: { stripeCustomerId: true, name: true },
+    })
+
+    let stripeCustomerId = dbUser?.stripeCustomerId ?? null
+
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email:    userEmail,
+        name:     dbUser?.name ?? undefined,
+        metadata: { userId },
+      })
+      stripeCustomerId = customer.id
+      await prisma.user.update({
+        where: { id: userId },
+        data:  { stripeCustomerId },
+      })
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount:   amountNow,
       currency: 'gbp',
+      customer: stripeCustomerId,
+      // save card for future off-session instalment charges
+      setup_future_usage: 'off_session',
       // Required for PaymentElement to dynamically show all payment methods
       // configured in the Stripe Dashboard (cards, Apple Pay, Google Pay, etc.)
       automatic_payment_methods: { enabled: true },
