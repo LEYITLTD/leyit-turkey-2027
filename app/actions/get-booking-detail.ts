@@ -12,6 +12,7 @@ export interface BookingOccupant {
 }
 
 export interface BookingDetail {
+  id:                string
   ref:               string
   status:            string
   plan:              string
@@ -62,6 +63,7 @@ export async function getBookingDetail(ref: string): Promise<BookingDetail | nul
   if (!booking) return null
 
   return {
+    id:                booking.id,
     ref:               booking.ref,
     status:            booking.status,
     plan:              booking.plan,
